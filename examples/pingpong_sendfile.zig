@@ -1,10 +1,10 @@
 const std = @import("std");
 const ps = @import("polysession");
-const net = std.net;
 const channel = @import("channel.zig");
 const StreamChannel = channel.StreamChannel;
 const pingpong = @import("./protocols/pingpong.zig");
 const sendfile = @import("./protocols/sendfile.zig");
+const net = std.Io.net;
 
 pub const AliceContext = struct {
     pingpong: pingpong.ClientContext,
@@ -36,6 +36,12 @@ pub const Runner = ps.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 
 pub fn main() !void {
+    var gpa_instance = std.heap.DebugAllocator(.{}).init;
+    const gpa = gpa_instance.allocator();
+
+    var threaded = std.Io.Threaded.init(gpa);
+    const io = threaded.io();
+
     //create tmp dir
     var tmp_dir_instance = std.testing.tmpDir(.{});
     defer tmp_dir_instance.cleanup();
@@ -51,22 +57,22 @@ pub fn main() !void {
     }
 
     //Server
-    const localhost = try net.Address.parseIp("127.0.0.1", 0);
+    const localhost = try net.IpAddress.parse("127.0.0.1", 6000);
 
-    var server = try localhost.listen(.{});
-    defer server.deinit();
+    var server = try localhost.listen(io, .{});
+    defer server.deinit(io);
     //
 
     const S = struct {
-        fn run(server_address: net.Address, dir: std.fs.Dir) !void {
-            const socket = try net.tcpConnectToAddress(server_address);
-            defer socket.close();
+        fn run(io_: std.Io, server_address: net.IpAddress, dir: std.fs.Dir) !void {
+            const socket = try net.IpAddress.connect(server_address, io_, .{ .mode = .stream });
+            defer socket.close(io_);
 
             var reader_buf: [1024 * 1024 * 2]u8 = undefined;
             var writer_buf: [1024 * 1024 * 2]u8 = undefined;
 
-            var stream_reader = socket.reader(&reader_buf);
-            var stream_writer = socket.writer(&writer_buf);
+            var stream_reader = socket.reader(io_, &reader_buf);
+            var stream_writer = socket.writer(io_, &writer_buf);
 
             const write_file = try dir.createFile("test_write", .{});
             defer write_file.close();
@@ -83,11 +89,12 @@ pub fn main() !void {
             };
 
             try Runner.runProtocol(
+                io_,
                 .bob,
                 true,
                 .{
                     .alice = StreamChannel{
-                        .reader = stream_reader.interface(),
+                        .reader = &stream_reader.interface,
                         .writer = &stream_writer.interface,
                         .log = false,
                     },
@@ -98,26 +105,26 @@ pub fn main() !void {
         }
     };
 
-    const t = try std.Thread.spawn(.{}, S.run, .{ server.listen_address, tmp_dir });
+    const t = try std.Thread.spawn(.{}, S.run, .{ io, localhost, tmp_dir });
     defer t.join();
 
     //
 
-    var client = try server.accept();
-    defer client.stream.close();
+    var client = try server.accept(io);
+    defer client.close(io);
 
     var reader_buf: [1024 * 1024 * 2]u8 = undefined;
     var writer_buf: [1024 * 1024 * 2]u8 = undefined;
 
-    var stream_reader = client.stream.reader(&reader_buf);
-    var stream_writer = client.stream.writer(&writer_buf);
+    var stream_reader = client.reader(io, &reader_buf);
+    var stream_writer = client.writer(io, &writer_buf);
 
     var file_reader_buf: [1024 * 1024 * 2]u8 = undefined;
 
     const read_file = try tmp_dir.openFile("test_read", .{});
     defer read_file.close();
 
-    var file_reader = read_file.reader(&file_reader_buf);
+    var file_reader = read_file.reader(io, &file_reader_buf);
 
     var server_context: AliceContext = .{
         .pingpong = .{ .client_counter = 0 },
@@ -128,11 +135,12 @@ pub fn main() !void {
     };
 
     const stid = try std.Thread.spawn(.{}, Runner.runProtocol, .{
+        io,
         .alice,
         true,
         .{
             .bob = StreamChannel{
-                .reader = stream_reader.interface(),
+                .reader = &stream_reader.interface,
                 .writer = &stream_writer.interface,
                 .log = false,
             },

@@ -39,6 +39,9 @@ pub fn main() !void {
     var gpa_instance = std.heap.DebugAllocator(.{}).init;
     const gpa = gpa_instance.allocator();
 
+    var threaded = std.Io.Threaded.init(gpa);
+    const io = threaded.io();
+
     //create tmp dir
     var tmp_dir_instance = std.testing.tmpDir(.{});
     defer tmp_dir_instance.cleanup();
@@ -53,17 +56,17 @@ pub fn main() !void {
         }
     }
 
-    var mvar_channel_map: MvarChannelMap = .init();
+    var mvar_channel_map: MvarChannelMap = try .init();
     try mvar_channel_map.generate_all_MvarChannel(gpa, 2 * 1024 * 1024);
 
     const alice = struct {
-        fn run(mcm: *MvarChannelMap, tmp_dir_: std.fs.Dir) !void {
+        fn run(io_: std.Io, mcm: *MvarChannelMap, tmp_dir_: std.fs.Dir) !void {
             var file_reader_buf: [1024 * 2]u8 = undefined;
 
             const read_file = try tmp_dir_.openFile("test_read", .{});
             defer read_file.close();
 
-            var file_reader = read_file.reader(&file_reader_buf);
+            var file_reader = read_file.reader(io_, &file_reader_buf);
 
             var alice_context: AliceContext = .{
                 .sendfile = .{
@@ -71,12 +74,12 @@ pub fn main() !void {
                     .file_size = (try read_file.stat()).size,
                 },
             };
-            try Runner.runProtocol(.alice, false, mcm, curr_id, &alice_context);
+            try Runner.runProtocol(io_, .alice, false, mcm, curr_id, &alice_context);
         }
     };
 
     const bob = struct {
-        fn run(mcm: *MvarChannelMap, tmp_dir_: std.fs.Dir) !void {
+        fn run(io_: std.Io, mcm: *MvarChannelMap, tmp_dir_: std.fs.Dir) !void {
             const write_file = try tmp_dir_.createFile("test_write", .{});
             defer write_file.close();
 
@@ -85,12 +88,12 @@ pub fn main() !void {
             var file_writer = write_file.writer(&file_writer_buf);
 
             var bob_context: BobContext = .{ .sendfile = .{ .writer = &file_writer.interface } };
-            try Runner.runProtocol(.bob, false, mcm, curr_id, &bob_context);
+            try Runner.runProtocol(io_, .bob, false, mcm, curr_id, &bob_context);
         }
     };
 
-    const alice_thread = try std.Thread.spawn(.{}, alice.run, .{ &mvar_channel_map, tmp_dir });
-    const bob_thread = try std.Thread.spawn(.{}, bob.run, .{ &mvar_channel_map, tmp_dir });
+    const alice_thread = try std.Thread.spawn(.{}, alice.run, .{ io, &mvar_channel_map, tmp_dir });
+    const bob_thread = try std.Thread.spawn(.{}, bob.run, .{ io, &mvar_channel_map, tmp_dir });
 
     alice_thread.join();
     bob_thread.join();

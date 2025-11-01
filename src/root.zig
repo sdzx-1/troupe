@@ -274,29 +274,28 @@ pub const StateMap = struct {
 
         comptime {
             const result = reachableStates(State_);
+            const TagInt = std.math.IntFittingRange(0, result.states.len - 1);
             return .{
                 .states = result.states,
                 .state_machine_names = result.state_machine_names,
-                .StateId = @Type(.{
-                    .@"enum" = .{
-                        .tag_type = std.math.IntFittingRange(0, result.states.len - 1),
-                        .fields = inner: {
-                            var fields: [result.states.len]std.builtin.Type.EnumField = undefined;
-
-                            for (&fields, result.states, 0..) |*field, State, state_int| {
-                                field.* = .{
-                                    .name = @typeName(State),
-                                    .value = state_int,
-                                };
-                            }
-
-                            const fields_const = fields;
-                            break :inner &fields_const;
-                        },
-                        .decls = &.{},
-                        .is_exhaustive = true,
+                .StateId = @Enum(
+                    TagInt,
+                    .exhaustive,
+                    names: {
+                        var fields: [result.states.len][:0]const u8 = undefined;
+                        for (&fields, result.states) |*field, State| {
+                            field.* = @typeName(State);
+                        }
+                        break :names fields[0..];
                     },
-                }),
+                    values: {
+                        var fields: [result.states.len]TagInt = undefined;
+                        for (&fields, 0..) |*field, state_int| {
+                            field.* = state_int;
+                        }
+                        break :values &fields;
+                    },
+                ),
             };
         }
     }
@@ -357,6 +356,7 @@ pub fn Runner(
             }
         }
         pub fn runProtocol(
+            io: std.Io,
             comptime curr_role: Role,
             comptime mult_channel_static_index_role: bool,
             mult_channel: anytype,
@@ -382,9 +382,9 @@ pub fn Runner(
                         //It ensures that the sender and receiver of the notification can be determined by the state machine.
                         const notify: Notify =
                             if (mult_channel_static_index_role)
-                                try @field(mult_channel, @tagName(internal_roles[0])).recv(state_id, Notify)
+                                try @field(mult_channel, @tagName(internal_roles[0])).recv(io, state_id, Notify)
                             else
-                                try mult_channel.recv(curr_role, internal_roles[0], state_id, Notify);
+                                try mult_channel.recv(io, curr_role, internal_roles[0], state_id, Notify);
 
                         const next_state_id: StateId = @enumFromInt(notify.polysession_notify);
                         continue :sw next_state_id;
@@ -395,7 +395,7 @@ pub fn Runner(
                             if (mult_channel_static_index_role)
                                 try @field(mult_channel, @tagName(rvr)).send(state_id, result)
                             else
-                                try mult_channel.send(curr_role, rvr, state_id, result);
+                                try mult_channel.send(io, curr_role, rvr, state_id, result);
                         }
                         switch (result) {
                             inline else => |new_fsm_state_wit| {
@@ -419,7 +419,7 @@ pub fn Runner(
                                 if (mult_channel_static_index_role)
                                     try @field(mult_channel, @tagName(sender)).recv(state_id, State)
                                 else
-                                    try mult_channel.recv(curr_role, sender, state_id, State);
+                                    try mult_channel.recv(io, curr_role, sender, state_id, State);
 
                             //If the receiver needs to notify an external actor,
                             // it should do so as soon as possible,

@@ -40,6 +40,17 @@ pub fn encode(writer: *std.Io.Writer, state_id: anytype, val: anytype) !void {
     try writer.flush();
 }
 
+pub fn TagPayloadByName(comptime U: type, comptime tag_name: []const u8) type {
+    const info = @typeInfo(U).@"union";
+
+    inline for (info.fields) |field_info| {
+        if (comptime std.mem.eql(u8, field_info.name, tag_name))
+            return field_info.type;
+    }
+
+    @compileError("no field '" ++ tag_name ++ "' in union '" ++ @typeName(U) ++ "'");
+}
+
 pub fn decode(reader: *std.Io.Reader, state_id: anytype, T: type) !T {
     const id: u8 = @intFromEnum(state_id);
     const rid = try reader.takeByte();
@@ -55,7 +66,7 @@ pub fn decode(reader: *std.Io.Reader, state_id: anytype, T: type) !T {
         const tag: std.meta.Tag(T) = @enumFromInt(recv_tag_num);
         switch (tag) {
             inline else => |t| {
-                const Data = @FieldType(std.meta.TagPayload(T, t), "data");
+                const Data = @FieldType(TagPayloadByName(T, @tagName(t)), "data");
                 switch (@typeInfo(Data)) {
                     .void => {
                         return @unionInit(T, @tagName(t), .{ .data = {} });

@@ -8,6 +8,7 @@ pub const ServerContext = struct {
 
 pub const ClientContext = struct {
     client_counter: i32,
+    counter: *std.atomic.Value(u32),
 };
 
 pub fn MkPingPong(
@@ -36,8 +37,9 @@ pub fn MkPingPong(
 
             pub fn process(parent_ctx: *info.Ctx(client)) !@This() {
                 const ctx = client_ctxFromParent(parent_ctx);
-                if (ctx.client_counter >= 10) {
+                if (ctx.client_counter > 30) {
                     ctx.client_counter = 0;
+                    _ = ctx.counter.fetchAdd(1, .seq_cst);
                     return .{ .next = .{ .data = {} } };
                 }
                 return .{ .ping = .{ .data = ctx.client_counter } };
