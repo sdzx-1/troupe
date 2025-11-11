@@ -196,7 +196,9 @@ fn reachableStatesDepthFirstSearch(
             }
 
             //The receivers cannot be empty
-            if (info.receiver.len == 0) {
+            // If the internal_roles len is 1, then the receiver can be empty;
+            // this is for compatibility with polystate.
+            if (Info.internal_roles.len > 1 and info.receiver.len == 0) {
                 @compileError(std.fmt.comptimePrint(
                     "{any}\nreceivers is empty",
                     .{CurrentState},
@@ -204,12 +206,15 @@ fn reachableStatesDepthFirstSearch(
             }
 
             //There cannot be duplicate roles in the receivers
-            for (0..info.receiver.len - 1) |i| {
-                if (std.mem.indexOfScalar(Role, info.receiver[i + 1 ..], info.receiver[i]) != null) {
-                    @compileError(std.fmt.comptimePrint(
-                        "{any}\nthere are repeated characters in receivers {any}",
-                        .{ CurrentState, info.receiver },
-                    ));
+            // this is for compatibility with polystate.
+            if (Info.internal_roles.len > 1) {
+                for (0..info.receiver.len - 1) |i| {
+                    if (std.mem.indexOfScalar(Role, info.receiver[i + 1 ..], info.receiver[i]) != null) {
+                        @compileError(std.fmt.comptimePrint(
+                            "{any}\nthere are repeated characters in receivers {any}",
+                            .{ CurrentState, info.receiver },
+                        ));
+                    }
                 }
             }
             //If the state has a branch, then the conditions must be met: 1 + receivers.len = internal_roles.len
