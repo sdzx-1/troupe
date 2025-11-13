@@ -9,6 +9,15 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    const raylib_dep = b.dependency("raylib_zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const raylib = raylib_dep.module("raylib"); // main raylib module
+    const raygui = raylib_dep.module("raygui"); // raygui module
+    const raylib_artifact = raylib_dep.artifact("raylib"); // raylib C library
+
     const exe_infos: []const struct {
         name: []const u8,
         path: []const u8,
@@ -30,9 +39,13 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
                 .imports = &.{
                     .{ .name = "troupe", .module = mod },
+                    .{ .name = "raylib", .module = raylib },
+                    .{ .name = "raygui", .module = raygui },
                 },
             }),
         });
+
+        exe.linkLibrary(raylib_artifact);
 
         const run_step = b.step(info.name, "Run the " ++ info.name);
 

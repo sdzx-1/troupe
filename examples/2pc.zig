@@ -28,15 +28,22 @@ pub const EnterFsmState = mk2pc(Role, .charlie, .alice, .bob, Context{}, troupe.
 
 pub const Runner = troupe.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
+const channel = @import("channel.zig");
 
 //
-const MvarChannelMap = @import("channel.zig").MvarChannelMap(Role);
+const MvarChannelMap = channel.MvarChannelMap(Role);
 
 pub fn main() !void {
     var gpa_instance = std.heap.DebugAllocator(.{}).init;
     const gpa = gpa_instance.allocator();
 
-    var mvar_channel_map: MvarChannelMap = .init();
+    var log_array: channel.LogArray = .{
+        .mutex = .{},
+        .log_array = .empty,
+        .allocator = gpa,
+    };
+
+    var mvar_channel_map: MvarChannelMap = .init(&log_array);
     try mvar_channel_map.generate_all_MvarChannel(gpa, 10);
 
     const alice = struct {

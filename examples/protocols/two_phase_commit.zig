@@ -44,7 +44,7 @@ pub fn mk2pc(
 
             pub fn process(ctx: *info.Ctx(alice)) !@This() {
                 const random: std.Random = ctx.xoshiro256.random();
-                const res: bool = random.intRangeAtMost(u32, 0, 100) < 80;
+                const res: bool = random.intRangeAtMost(u32, 0, 100) < 90;
                 return .{ .resp = .{ .data = res } };
             }
 
@@ -65,7 +65,7 @@ pub fn mk2pc(
 
                 pub fn process(ctx: *info.Ctx(bob)) !@This() {
                     const random: std.Random = ctx.xoshiro256.random();
-                    const res: bool = random.intRangeAtMost(u32, 0, 100) < 80;
+                    const res: bool = random.intRangeAtMost(u32, 0, 100) < 90;
                     return .{ .resp = .{ .data = res } };
                 }
 
@@ -89,7 +89,7 @@ pub fn mk2pc(
                 if (ctx.counter == 2) {
                     ctx.retry_times = 0;
                     return .{ .succcessed = .{ .data = {} } };
-                } else if (ctx.retry_times < 4) {
+                } else if (ctx.retry_times < 40) {
                     ctx.retry_times += 1;
                     std.debug.print("2pc failed retry: {d}\n", .{ctx.retry_times});
                     return .{ .failed_retry = .{ .data = {} } };

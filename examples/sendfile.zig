@@ -32,8 +32,9 @@ pub const EnterFsmState = sendfile.MkSendFile(
 
 pub const Runner = troupe.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
+const channel = @import("channel.zig");
 
-const MvarChannelMap = @import("channel.zig").MvarChannelMap(Role);
+const MvarChannelMap = channel.MvarChannelMap(Role);
 
 pub fn main() !void {
     var gpa_instance = std.heap.DebugAllocator(.{}).init;
@@ -53,7 +54,13 @@ pub fn main() !void {
         }
     }
 
-    var mvar_channel_map: MvarChannelMap = .init();
+    var log_array: channel.LogArray = .{
+        .mutex = .{},
+        .log_array = .empty,
+        .allocator = gpa,
+    };
+
+    var mvar_channel_map: MvarChannelMap = .init(&log_array);
     try mvar_channel_map.generate_all_MvarChannel(gpa, 2 * 1024 * 1024);
 
     const alice = struct {
