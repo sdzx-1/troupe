@@ -1,6 +1,6 @@
 const std = @import("std");
-const ps = @import("polysession");
-const Data = ps.Data;
+const troupe = @import("troupe");
+const Data = troupe.Data;
 
 pub fn mk2pc(
     Role: type,
@@ -16,7 +16,7 @@ pub fn mk2pc(
             StateName: []const u8,
             sender: Role,
             receiver: []const Role,
-        ) ps.ProtocolInfo(
+        ) troupe.ProtocolInfo(
             "2pc_generic",
             Role,
             context,

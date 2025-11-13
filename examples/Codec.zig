@@ -1,11 +1,11 @@
 const std = @import("std");
-const Notify = @import("polysession").Notify;
+const Notify = @import("troupe").Notify;
 
 pub fn encode(writer: *std.Io.Writer, state_id: anytype, val: anytype) !void {
     const id: u8 = @intFromEnum(state_id);
     try writer.writeByte(id);
     if (@TypeOf(val) == Notify) {
-        try writer.writeByte(val.polysession_notify);
+        try writer.writeByte(val.troupe_notify);
     } else {
         switch (val) {
             inline else => |msg, tag| {
@@ -49,7 +49,7 @@ pub fn decode(reader: *std.Io.Reader, state_id: anytype, T: type) !T {
     }
     if (T == Notify) {
         const next_id = try reader.takeByte();
-        return .{ .polysession_notify = next_id };
+        return .{ .troupe_notify = next_id };
     } else {
         const recv_tag_num = try reader.takeByte();
         const tag: std.meta.Tag(T) = @enumFromInt(recv_tag_num);

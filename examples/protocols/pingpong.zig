@@ -1,6 +1,6 @@
 const std = @import("std");
-const ps = @import("polysession");
-const Data = ps.Data;
+const troupe = @import("troupe");
+const Data = troupe.Data;
 
 pub const ServerContext = struct {
     server_counter: i32,
@@ -24,7 +24,7 @@ pub fn MkPingPong(
             StateName: []const u8,
             sender: Role,
             receiver: []const Role,
-        ) ps.ProtocolInfo("pingpong", Role, context, &.{ client, server }, &.{NextFsmState}) {
+        ) troupe.ProtocolInfo("pingpong", Role, context, &.{ client, server }, &.{NextFsmState}) {
             return .{ .name = StateName, .sender = sender, .receiver = receiver };
         }
 

@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
                 .target = target,
                 .optimize = optimize,
                 .imports = &.{
-                    .{ .name = "polysession", .module = mod },
+                    .{ .name = "troupe", .module = mod },
                 },
             }),
         });
@@ -72,7 +72,7 @@ pub fn addGraphFile(
     b: *std.Build,
     module_name: []const u8,
     module: *std.Build.Module,
-    polysession: *std.Build.Module,
+    troupe: *std.Build.Module,
     target: std.Build.ResolvedTarget,
 ) std.Build.LazyPath {
     const options = b.addOptions();
@@ -88,12 +88,12 @@ pub fn addGraphFile(
 
     writer.print(
         \\const std = @import("std");
-        \\const ps = @import("polysession");
+        \\const troupe = @import("troupe");
         \\const Target = @import("{s}");
         \\pub fn main() !void {{
         \\  var gpa_instance = std.heap.GeneralPurposeAllocator(.{{}}){{}};
         \\  const gpa = gpa_instance.allocator();
-        \\  var graph = try ps.Graph.initWithFsm(gpa, Target.EnterFsmState);
+        \\  var graph = try troupe.Graph.initWithFsm(gpa, Target.EnterFsmState);
         \\  defer graph.deinit();
         \\
     ++ stdio_writer_setup ++
@@ -106,7 +106,7 @@ pub fn addGraphFile(
         .root_source_file = options.getOutput(),
         .target = target,
         .imports = &.{
-            .{ .name = "polysession", .module = polysession },
+            .{ .name = "troupe", .module = troupe },
             .{ .name = b.allocator.dupe(u8, module_name) catch @panic("OOM"), .module = module },
         },
     });
@@ -124,11 +124,11 @@ pub fn addInstallGraphFile(
     b: *std.Build,
     module_name: []const u8,
     module: *std.Build.Module,
-    polysession: *std.Build.Module,
+    troupe: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     install_dir: std.Build.InstallDir,
 ) *std.Build.Step.InstallFile {
-    const dot_file = addGraphFile(b, module_name, module, polysession, target);
+    const dot_file = addGraphFile(b, module_name, module, troupe, target);
 
     const output_name = std.mem.concat(b.allocator, u8, &.{ module_name, ".dot" }) catch @panic("OOM");
     return b.addInstallFileWithDir(dot_file, install_dir, output_name);

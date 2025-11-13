@@ -1,18 +1,18 @@
 A multi-role communication protocol framework.
 
 
-## Adding polysession to your project
+## Adding troupe to your project
 Requires zig version greater than 0.15.0.
 
 
-Download and add polysession as a dependency by running the following command in your project root:
+Download and add troupe as a dependency by running the following command in your project root:
 ```shell
-zig fetch --save git+https://github.com/sdzx-1/polysession.git
+zig fetch --save git+https://github.com/sdzx-1/troupe.git
 ```
 
 Then, retrieve the dependency in your build.zig:
 ```zig
-const polysession = b.dependency("polysession", .{
+const troupe = b.dependency("troupe", .{
     .target = target,
     .optimize = optimize,
 });
@@ -20,17 +20,18 @@ const polysession = b.dependency("polysession", .{
 
 Finally, add the dependency's module to your module's imports:
 ```zig
-exe_mod.addImport("polysession", polysession.module("root"));
+exe_mod.addImport("troupe", troupe.module("root"));
 ```
 
-You should now be able to import polysession in your module's code:
+You should now be able to import troupe in your module's code:
 ```zig
-const ps = @import("polysession");
+const troupe = @import("troupe");
 ```
+
 ## Core idea
-### 0. Polysession assumes that communication between roles is sequential
-Polysession ensures that the behavior of each role is completely determined by the state machine.
-If the communication itself can guarantee the order (such as TCP), then the protocol described by polysession is deterministic and the behavior of all roles is consistent.
+### 0. troupe assumes that communication between roles is sequential
+troupe ensures that the behavior of each role is completely determined by the state machine.
+If the communication itself can guarantee the order (such as TCP), then the protocol described by troupe is deterministic and the behavior of all roles is consistent.
 
 ### 1. Compositionality of State
 
@@ -40,16 +41,16 @@ Through [polystate](https://github.com/sdzx-1/polystate), we know that state can
 Through the introduction [here](https://discourse.haskell.org/t/introduction-to-typed-session/10100), we know that communication can be modeled using a state machine.
 
 ### 3. How to handle branch status in multi-role communication
-Multi-role communication differs from client-server communication in that polysession requires that messages generated during branching must be notified to all other parties.
+Multi-role communication differs from client-server communication in that troupe requires that messages generated during branching must be notified to all other parties.
 This ensures that all roles are synchronized.
 
 ### 4. How to Combine Protocols with Different Participants
 If two protocol participants are exactly the same, then the states are directly combined.
 If the participants of the two protocols are different, then we need to notify all other roles except the roles of the previous protocol.
-This [issue](https://github.com/sdzx-1/polysession/issues/15) describes the situation.
+This [issue](https://github.com/sdzx-1/troupe/issues/15) describes the situation.
 
-### 5. How to learn polysession
-You need to first familiarize yourself with polystate and how to combine states. Then look at the examples that come with polysession.
+### 5. How to learn troupe
+You need to first familiarize yourself with polystate and how to combine states. Then look at the examples that come with troupe.
 
 ## Examples
 ### pingpong
@@ -92,7 +93,7 @@ zig build random-pingpong-2pc
 A complex protocol involving four actors has an additional selector to select the combined protocol to run.
 Here, we arbitrarily combine the pingpong protocol and the 2pc protocol.
 Note that the communication actors in pingpong and 2pc are different.
-Polysession supports this combination of different protocols, even if the protocols have different numbers of participants.
+troupe supports this combination of different protocols, even if the protocols have different numbers of participants.
 
 
 ![random-pingpong-2pc](./data/random-pingpong-2cp.svg)

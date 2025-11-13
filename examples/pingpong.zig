@@ -1,6 +1,6 @@
 const std = @import("std");
-const ps = @import("polysession");
-const Data = ps.Data;
+const troupe = @import("troupe");
+const Data = troupe.Data;
 const pingpong = @import("./protocols/pingpong.zig");
 
 const Role = enum { alice, bob };
@@ -18,9 +18,9 @@ const Context = struct {
     bob: type = BobContext,
 };
 
-pub const EnterFsmState = pingpong.MkPingPong(Role, .alice, .bob, Context{}, .pingpong, .pingpong, ps.Exit).Ping;
+pub const EnterFsmState = pingpong.MkPingPong(Role, .alice, .bob, Context{}, .pingpong, .pingpong, troupe.Exit).Ping;
 
-pub const Runner = ps.Runner(EnterFsmState);
+pub const Runner = troupe.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 
 const MvarChannelMap = @import("channel.zig").MvarChannelMap(Role);

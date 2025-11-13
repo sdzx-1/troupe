@@ -1,8 +1,8 @@
 const std = @import("std");
-const ps = @import("root.zig");
+const troupe = @import("root.zig");
 
-const Mode = ps.Mode;
-const Method = ps.Method;
+const Mode = troupe.Mode;
+const Method = troupe.Method;
 const Adler32 = std.hash.Adler32;
 
 arena: std.heap.ArenaAllocator,
@@ -134,19 +134,19 @@ pub fn initWithFsm(allocator: std.mem.Allocator, comptime State_: type) !Graph {
     var nodes: std.ArrayListUnmanaged(Node) = .empty;
     var edges: std.ArrayListUnmanaged(Edge) = .empty;
 
-    const state_map: ps.StateMap = comptime .init(State_);
+    const state_map: troupe.StateMap = comptime .init(State_);
 
     inline for (state_map.states, state_map.state_machine_names, 0..) |State, fsm_name, state_idx| {
         //node description
         // const description =
         try nodes.append(arena_allocator, .{
-            .state_description = if (State == ps.Exit) "Exit" else try std.fmt.allocPrint(
+            .state_description = if (State == troupe.Exit) "Exit" else try std.fmt.allocPrint(
                 arena_allocator,
                 "{s} .{t} -> {any}",
                 .{ State.info.name, State.info.sender, State.info.receiver },
             ),
             .id = @intCast(state_idx),
-            .fsm_description = if (State == ps.Exit) fsm_name else try std.fmt.allocPrint(
+            .fsm_description = if (State == troupe.Exit) fsm_name else try std.fmt.allocPrint(
                 arena_allocator,
                 "{s}: {any}",
                 .{ fsm_name, @TypeOf(State.info).internal_roles },

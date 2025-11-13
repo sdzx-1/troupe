@@ -1,6 +1,6 @@
 const std = @import("std");
-const ps = @import("polysession");
-const Data = ps.Data;
+const troupe = @import("troupe");
+const Data = troupe.Data;
 
 pub const SendContext = struct {
     send_buff: [1024 * 1024]u8 = @splat(0),
@@ -36,7 +36,7 @@ pub fn MkSendFile(
             StateName: []const u8,
             sender_: Role,
             receiver_: []const Role,
-        ) ps.ProtocolInfo(
+        ) troupe.ProtocolInfo(
             "sendfile",
             Role,
             context,

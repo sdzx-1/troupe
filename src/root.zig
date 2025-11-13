@@ -7,14 +7,14 @@ pub const Exit = union(enum) {
     pub const info: Info = .{};
 
     pub const Info = struct {
-        pub const ProtocolName = "polysession_exit";
+        pub const ProtocolName = "troupe_exit";
         pub const Role = void;
         pub const Context = void;
     };
 };
 
 //When switching protocols, all roles that were not in the previous protocol are notified and informed of the next status.
-pub const Notify = struct { polysession_notify: u8 };
+pub const Notify = struct { troupe_notify: u8 };
 
 pub fn Data(Data_: type, State_: type) type {
     return struct {
@@ -354,9 +354,9 @@ pub fn Runner(
                     const role: Role = @enumFromInt(i);
                     if (comptime std.mem.indexOfScalar(Role, internal_roles, role) == null) {
                         if (mult_channel_static_index_role)
-                            try @field(mult_channel, @tagName(role)).send(state_id, Notify{ .polysession_notify = @intFromEnum(idFromState(NewState)) })
+                            try @field(mult_channel, @tagName(role)).send(state_id, Notify{ .troupe_notify = @intFromEnum(idFromState(NewState)) })
                         else
-                            try mult_channel.send(curr_role, role, state_id, Notify{ .polysession_notify = @intFromEnum(idFromState(NewState)) });
+                            try mult_channel.send(curr_role, role, state_id, Notify{ .troupe_notify = @intFromEnum(idFromState(NewState)) });
                     }
                 }
             }
@@ -391,7 +391,7 @@ pub fn Runner(
                             else
                                 try mult_channel.recv(curr_role, internal_roles[0], state_id, Notify);
 
-                        const next_state_id: StateId = @enumFromInt(notify.polysession_notify);
+                        const next_state_id: StateId = @enumFromInt(notify.troupe_notify);
                         continue :sw next_state_id;
                     } else if (comptime curr_role == sender) {
                         //The current role is the sender, which sends messages to all receivers.

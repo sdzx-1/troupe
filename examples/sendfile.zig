@@ -1,6 +1,6 @@
 const std = @import("std");
-const ps = @import("polysession");
-const Data = ps.Data;
+const troupe = @import("troupe");
+const Data = troupe.Data;
 const sendfile = @import("./protocols/sendfile.zig");
 
 const Role = enum { alice, bob };
@@ -26,11 +26,11 @@ pub const EnterFsmState = sendfile.MkSendFile(
     1024,
     .sendfile,
     .sendfile,
-    ps.Exit,
-    ps.Exit,
+    troupe.Exit,
+    troupe.Exit,
 ).Start;
 
-pub const Runner = ps.Runner(EnterFsmState);
+pub const Runner = troupe.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 
 const MvarChannelMap = @import("channel.zig").MvarChannelMap(Role);
