@@ -5,6 +5,7 @@ const pingpong = @import("./protocols/pingpong.zig");
 const mk2pc = @import("./protocols/two_phase_commit.zig").mk2pc;
 const channel = @import("channel.zig");
 const rl = @import("raylib");
+const rg = @import("raygui");
 
 const MvarChannelMap = channel.MvarChannelMap(AllRole);
 
@@ -88,7 +89,7 @@ pub fn main() !void {
     const role_pos: [role_num]rl.Vector2 = blk: {
         var tmp: [role_num]rl.Vector2 = undefined;
         for (0..role_num) |i| {
-            const val: f32 = @as(f32, std.math.pi) / 2.0 * @as(f32, @floatFromInt(i));
+            const val: f32 = @as(f32, std.math.pi * 2) / @as(f32, @floatFromInt(role_num)) * @as(f32, @floatFromInt(i));
             const x: f32 = @sin(val) * origin_r;
             const y: f32 = @cos(val) * origin_r;
             tmp[i] = origin_v.add(.{ .x = x, .y = y });
@@ -103,12 +104,10 @@ pub fn main() !void {
 
     // Main game loop
     while (!rl.windowShouldClose()) { // Detect window close button or ESC key
-        if (rl.isKeyDown(rl.KeyboardKey.j)) {
-            ms_per_frame *= 0.98;
-        }
-
-        if (rl.isKeyDown(rl.KeyboardKey.k)) {
-            ms_per_frame *= 1.02;
+        if (rl.isKeyPressed(rl.KeyboardKey.space)) {
+            start_idx = 0;
+            current_time = 0;
+            collect.clearAndFree(gpa);
         }
         //update current_time
         current_time += ms_per_frame;
@@ -151,7 +150,7 @@ pub fn main() !void {
             const from_vec = role_pos[@as(usize, @intCast(log.sender))];
             const to_vec = role_pos[@as(usize, @intCast(log.receiver))];
             const msg_vec = rl.Vector2.lerp(from_vec, to_vec, rval);
-            rl.drawCircleV(msg_vec, 10, rl.Color.red);
+            rl.drawCircleV(msg_vec, 7, rl.Color.red);
             const str = switch (log.msg) {
                 .notify => try std.fmt.allocPrintSentinel(gpa, "notify", .{}, 0),
                 .msg_tag => |s| try std.fmt.allocPrintSentinel(gpa, "{s}", .{s}, 0),
@@ -159,6 +158,15 @@ pub fn main() !void {
             defer gpa.free(str);
             rl.drawTextEx(font, str, msg_vec, 20, 0, rl.Color.black);
         }
+        _ = rg.slider(.{ .x = 30, .y = 0, .width = 200, .height = 20 }, "0.001", "2", &ms_per_frame, 0.001, 2);
+        if (rg.button(.{ .x = 30, .y = 30, .width = 50, .height = 20 }, "reset")) {
+            start_idx = 0;
+            current_time = 0;
+            collect.clearAndFree(gpa);
+        }
+        const str = try std.fmt.allocPrintSentinel(gpa, "{d}", .{current_time}, 0);
+        defer gpa.free(str);
+        _ = rg.label(.{ .x = 100, .y = 30, .width = 50, .height = 20 }, str);
     }
 
     //
