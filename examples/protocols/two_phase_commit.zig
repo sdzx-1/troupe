@@ -44,7 +44,7 @@ pub fn mk2pc(
 
             pub fn process(ctx: *info.Ctx(alice)) !@This() {
                 const random: std.Random = ctx.xoshiro256.random();
-                const res: bool = random.intRangeAtMost(u32, 0, 100) < 90;
+                const res: bool = random.intRangeAtMost(u32, 0, 100) < 50;
                 return .{ .resp = .{ .data = res } };
             }
 
@@ -65,7 +65,7 @@ pub fn mk2pc(
 
                 pub fn process(ctx: *info.Ctx(bob)) !@This() {
                     const random: std.Random = ctx.xoshiro256.random();
-                    const res: bool = random.intRangeAtMost(u32, 0, 100) < 90;
+                    const res: bool = random.intRangeAtMost(u32, 0, 100) < 50;
                     return .{ .resp = .{ .data = res } };
                 }
 
