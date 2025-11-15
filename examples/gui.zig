@@ -10,7 +10,7 @@ pub fn start(Role: type, gpa: std.mem.Allocator, log_array: *channel.LogArray) !
     const screenWidth = 800;
     const screenHeight = 450;
 
-    rl.initWindow(screenWidth, screenHeight, "random-pingpong-2pc");
+    rl.initWindow(screenWidth, screenHeight, "animation");
     defer rl.closeWindow(); // Close window and OpenGL context
     const font = try rl.loadFontEx("data/FiraMono-Regular.ttf", 32, null);
 
