@@ -95,7 +95,7 @@ pub fn start(Role: type, gpa: std.mem.Allocator, log_array: *channel.LogArray) !
             defer gpa.free(str);
             rl.drawTextEx(font, str, msg_vec, 20, 0, rl.Color.black);
         }
-        _ = rg.slider(.{ .x = 30, .y = 0, .width = 200, .height = 20 }, "0.001", "1", &ms_per_frame, 0.001, 1);
+        _ = rg.slider(.{ .x = 30, .y = 0, .width = 200, .height = 20 }, "0", "5", &ms_per_frame, 0, 5);
         if (rg.button(.{ .x = 30, .y = 30, .width = 50, .height = 20 }, "reset")) {
             start_idx = 0;
             current_time = 0;
