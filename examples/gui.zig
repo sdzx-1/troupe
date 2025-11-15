@@ -20,6 +20,7 @@ pub fn start(Role: type, gpa: std.mem.Allocator, log_array: *channel.LogArray) !
     const origin_v: rl.Vector2 = .{ .x = 400, .y = 225 };
     const origin_r: f32 = 200;
     var ms_per_frame: f32 = 0.3;
+    var ms_per_frame_slider: f32 = 0.3;
     const base_timestamp = log_array.log_array.items[0].send_timestamp;
     const role_num = @typeInfo(Role).@"enum".fields.len;
     const role_pos: [role_num]rl.Vector2 = blk: {
@@ -95,7 +96,10 @@ pub fn start(Role: type, gpa: std.mem.Allocator, log_array: *channel.LogArray) !
             defer gpa.free(str);
             rl.drawTextEx(font, str, msg_vec, 20, 0, rl.Color.black);
         }
-        _ = rg.slider(.{ .x = 30, .y = 0, .width = 200, .height = 20 }, "0", "5", &ms_per_frame, 0, 5);
+        if (rg.slider(.{ .x = 30, .y = 0, .width = 200, .height = 20 }, "0", "5", &ms_per_frame_slider, 0, 6.6) == 1) {
+            ms_per_frame =
+                if (ms_per_frame_slider == 0) 0 else std.math.pow(f32, std.math.e, ms_per_frame_slider - 5);
+        }
         if (rg.button(.{ .x = 30, .y = 30, .width = 50, .height = 20 }, "reset")) {
             start_idx = 0;
             current_time = 0;
