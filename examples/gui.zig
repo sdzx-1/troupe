@@ -105,8 +105,17 @@ pub fn start(Role: type, gpa: std.mem.Allocator, log_array: *channel.LogArray) !
             current_time = 0;
             collect.clearAndFree(gpa);
         }
-        const str = try std.fmt.allocPrintSentinel(gpa, "{d}", .{current_time}, 0);
+        const str = try std.fmt.allocPrintSentinel(gpa, "Now: {d:.0}", .{current_time}, 0);
         defer gpa.free(str);
-        _ = rg.label(.{ .x = 100, .y = 30, .width = 50, .height = 20 }, str);
+        _ = rg.label(.{ .x = 100, .y = 30, .width = 150, .height = 20 }, str);
+
+        const str1 = try std.fmt.allocPrintSentinel(
+            gpa,
+            "Total: {d}",
+            .{log_array.log_array.items[log_array.log_array.items.len - 1].send_timestamp - base_timestamp},
+            0,
+        );
+        defer gpa.free(str1);
+        _ = rg.label(.{ .x = 180, .y = 30, .width = 150, .height = 20 }, str1);
     }
 }
