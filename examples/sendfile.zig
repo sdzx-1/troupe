@@ -2,6 +2,7 @@ const std = @import("std");
 const troupe = @import("troupe");
 const Data = troupe.Data;
 const sendfile = @import("./protocols/sendfile.zig");
+const gui = @import("gui.zig");
 
 const Role = enum { alice, bob };
 
@@ -32,8 +33,9 @@ pub const EnterFsmState = sendfile.MkSendFile(
 
 pub const Runner = troupe.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
+const channel = @import("channel.zig");
 
-const MvarChannelMap = @import("channel.zig").MvarChannelMap(Role);
+const MvarChannelMap = channel.MvarChannelMap(Role);
 
 pub fn main() !void {
     var gpa_instance = std.heap.DebugAllocator(.{}).init;
@@ -53,7 +55,14 @@ pub fn main() !void {
         }
     }
 
-    var mvar_channel_map: MvarChannelMap = .init();
+    var counter: std.atomic.Value(usize) = .init(0);
+    var log_array: channel.LogArray = .{
+        .mutex = .{},
+        .log_array = .empty,
+        .allocator = gpa,
+    };
+
+    var mvar_channel_map: MvarChannelMap = .init(&log_array, &counter);
     try mvar_channel_map.generate_all_MvarChannel(gpa, 2 * 1024 * 1024);
 
     const alice = struct {
@@ -91,6 +100,8 @@ pub fn main() !void {
 
     const alice_thread = try std.Thread.spawn(.{}, alice.run, .{ &mvar_channel_map, tmp_dir });
     const bob_thread = try std.Thread.spawn(.{}, bob.run, .{ &mvar_channel_map, tmp_dir });
+
+    try gui.start(Role, gpa, &log_array);
 
     alice_thread.join();
     bob_thread.join();

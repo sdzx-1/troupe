@@ -3,14 +3,24 @@ const troupe = @import("troupe");
 const Data = troupe.Data;
 const pingpong = @import("./protocols/pingpong.zig");
 const mk2pc = @import("./protocols/two_phase_commit.zig").mk2pc;
+const channel = @import("channel.zig");
+const gui = @import("gui.zig");
 
-const MvarChannelMap = @import("channel.zig").MvarChannelMap(AllRole);
+const MvarChannelMap = channel.MvarChannelMap(AllRole);
 
 pub fn main() !void {
     var gpa_instance = std.heap.DebugAllocator(.{}).init;
     const gpa = gpa_instance.allocator();
 
-    var mvar_channel_map: MvarChannelMap = .init();
+    var counter: std.atomic.Value(usize) = .init(0);
+
+    var log_array: channel.LogArray = .{
+        .mutex = .{},
+        .log_array = .empty,
+        .allocator = gpa,
+    };
+
+    var mvar_channel_map: MvarChannelMap = .init(&log_array, &counter);
     try mvar_channel_map.generate_all_MvarChannel(gpa, 10);
 
     const alice = struct {
@@ -57,6 +67,8 @@ pub fn main() !void {
     const bob_thread = try std.Thread.spawn(.{}, bob.run, .{&mvar_channel_map});
     const charlie_thread = try std.Thread.spawn(.{}, charlie.run, .{&mvar_channel_map});
     const selector_thread = try std.Thread.spawn(.{}, selector.run, .{&mvar_channel_map});
+
+    try gui.start(AllRole, gpa, &log_array);
 
     alice_thread.join();
     bob_thread.join();
