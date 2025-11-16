@@ -1,5 +1,8 @@
-A multi-role communication protocol framework.
+Multi-role finite state machine, used for multithreaded programs or distributed programs.
 
+Some similar libraries:
+1. https://www.choral-lang.org/index.html
+2. https://github.com/gshen42/HasChor
 
 ## Adding troupe to your project
 Requires zig version greater than 0.15.0.
@@ -48,9 +51,6 @@ This ensures that all roles are synchronized.
 If two protocol participants are exactly the same, then the states are directly combined.
 If the participants of the two protocols are different, then we need to notify all other roles except the roles of the previous protocol.
 This [issue](https://github.com/sdzx-1/troupe/issues/15) describes the situation.
-
-### 5. How to learn troupe
-You need to first familiarize yourself with polystate and how to combine states. Then look at the examples that come with troupe.
 
 ## Examples
 ### pingpong
