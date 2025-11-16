@@ -19,8 +19,9 @@ pub fn start(Role: type, gpa: std.mem.Allocator, log_array: *channel.LogArray) !
 
     const origin_v: rl.Vector2 = .{ .x = 400, .y = 225 };
     const origin_r: f32 = 200;
-    var ms_per_frame: f32 = 0.3;
-    var ms_per_frame_slider: f32 = 0.3;
+    var ms_per_frame_slider: f32 = 4;
+    var ms_per_frame: f32 = std.math.pow(f32, std.math.e, ms_per_frame_slider - 5);
+
     const base_timestamp = log_array.log_array.items[0].send_timestamp;
     const role_num = @typeInfo(Role).@"enum".fields.len;
     const role_pos: [role_num]rl.Vector2 = blk: {
@@ -63,6 +64,8 @@ pub fn start(Role: type, gpa: std.mem.Allocator, log_array: *channel.LogArray) !
         {
             try collect.append(gpa, log_array.log_array.items[start_idx]);
         }
+
+        // std.debug.print("collect: {any}\n", .{collect.items});
 
         // Draw
         //----------------------------------------------------------------------------------

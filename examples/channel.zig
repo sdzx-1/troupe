@@ -28,6 +28,7 @@ pub const StreamChannel = struct {
 pub const MvarChannel = struct {
     mvar_a: *Mvar,
     mvar_b: *Mvar,
+    xoshiro256: *std.Random.Xoshiro256,
 
     pub fn recv(self: @This(), state_id: anytype, T: type) !struct { usize, T } {
         return try self.mvar_a.recv(state_id, T);
@@ -114,7 +115,7 @@ pub const LogArray = struct {
             const st: f32 = @floatFromInt(self.send_timestamp - base_timestamp);
             const rt: f32 = @floatFromInt(self.recv_timestamp - base_timestamp);
 
-            // std.debug.print("{d}, <-{d}->  {d}\n", .{ st, curr_time, rt });
+            // std.debug.print("{d}, <{d}>  {d}\n", .{ st, curr_time, rt });
             // std.debug.print("recv: {d}\n", .{self.recv_timestamp});
 
             return curr_time < rt and curr_time >= st;
@@ -169,7 +170,7 @@ pub fn MvarChannelMap(Role: type) type {
         hashmap: std.AutoArrayHashMapUnmanaged([2]u8, MvarChannel),
         log: bool = true,
         log_array: *LogArray,
-        msg_delay: ?u64 = 10, //ms
+        msg_delay: bool = true, //ms
         counter: *std.atomic.Value(usize),
 
         pub fn init(log_array: *LogArray, counter: *std.atomic.Value(usize)) @This() {
@@ -194,26 +195,31 @@ pub fn MvarChannelMap(Role: type) type {
                 while (j < enum_fields.len) : (j += 1) {
                     const mvar_a = try Mvar.init(gpa, buff_size);
                     const mvar_b = try Mvar.init(gpa, buff_size);
+                    const tmp_buff = try gpa.create(std.Random.Xoshiro256);
+                    std.crypto.random.bytes(@ptrCast(&tmp_buff.s));
 
                     try self.hashmap.put(
                         gpa,
                         .{ @as(u8, @intCast(i)), @as(u8, @intCast(j)) },
-                        .{ .mvar_a = mvar_a, .mvar_b = mvar_b },
+                        .{ .mvar_a = mvar_a, .mvar_b = mvar_b, .xoshiro256 = tmp_buff },
                     );
 
                     try self.hashmap.put(
                         gpa,
                         .{ @as(u8, @intCast(j)), @as(u8, @intCast(i)) },
-                        .{ .mvar_a = mvar_b, .mvar_b = mvar_a },
+                        .{ .mvar_a = mvar_b, .mvar_b = mvar_a, .xoshiro256 = tmp_buff },
                     );
                 }
             }
         }
 
         pub fn recv(self: @This(), curr_role: Role, other: Role, state_id: anytype, T: type) !T {
-            const mvar_channel = self.hashmap.get(.{ @intFromEnum(curr_role), @intFromEnum(other) }).?;
+            const mvar_channel: MvarChannel = self.hashmap.get(.{ @intFromEnum(curr_role), @intFromEnum(other) }).?;
             const res = try mvar_channel.recv(state_id, T);
-            if (self.msg_delay) |delay| std.Thread.sleep(std.time.ns_per_ms * delay);
+            if (self.msg_delay) {
+                const random = mvar_channel.xoshiro256.random();
+                std.Thread.sleep(std.time.ns_per_ms * random.intRangeAtMost(u64, 10, 30));
+            }
             if (self.log) {
                 const recv_log: LogArray.RecvLog = .{
                     .curr_role = @intFromEnum(curr_role),
