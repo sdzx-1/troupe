@@ -36,7 +36,7 @@ pub fn MkPingPong(
 
             pub fn process(parent_ctx: *info.Ctx(client)) !@This() {
                 const ctx = client_ctxFromParent(parent_ctx);
-                if (ctx.client_counter >= 10) {
+                if (ctx.client_counter == 2) {
                     ctx.client_counter = 0;
                     return .{ .next = .{ .data = {} } };
                 }
