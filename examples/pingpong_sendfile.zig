@@ -84,6 +84,7 @@ pub fn main() !void {
 
             try Runner.runProtocol(
                 .bob,
+                null,
                 true,
                 .{
                     .alice = StreamChannel{
@@ -129,6 +130,7 @@ pub fn main() !void {
 
     const stid = try std.Thread.spawn(.{}, Runner.runProtocol, .{
         .alice,
+        null,
         true,
         .{
             .bob = StreamChannel{

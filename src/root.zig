@@ -363,6 +363,7 @@ pub fn Runner(
         }
         pub fn runProtocol(
             comptime curr_role: Role,
+            comptime enter_fn: ?fn (*State_.info.Ctx(curr_role), type) void,
             comptime mult_channel_static_index_role: bool,
             mult_channel: anytype,
             curr_id: StateId,
@@ -373,6 +374,9 @@ pub fn Runner(
                 inline else => |state_id| {
                     const State = StateFromId(state_id);
                     if (comptime State == Exit) return;
+
+                    //if enter_fn exist, run it!
+                    if (enter_fn) |fun| fun(ctx, State);
 
                     const info = comptime State.info;
                     const sender: Role = comptime info.sender;

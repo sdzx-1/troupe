@@ -6,7 +6,7 @@ pub fn main() !void {
     var ctx: i32 = 0;
     // The meaning of `undefined` here is: the receiver is empty,
     //  therefore the channel will not be used.
-    try Runner.runProtocol(.a, undefined, undefined, curr_id, &ctx);
+    try Runner.runProtocol(.a, null, undefined, undefined, curr_id, &ctx);
 }
 
 pub const EnterFsmState = A;

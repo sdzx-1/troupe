@@ -80,7 +80,7 @@ pub fn main() !void {
                     .file_size = (try read_file.stat()).size,
                 },
             };
-            try Runner.runProtocol(.alice, false, mcm, curr_id, &alice_context);
+            try Runner.runProtocol(.alice, null, false, mcm, curr_id, &alice_context);
         }
     };
 
@@ -94,7 +94,7 @@ pub fn main() !void {
             var file_writer = write_file.writer(&file_writer_buf);
 
             var bob_context: BobContext = .{ .sendfile = .{ .writer = &file_writer.interface } };
-            try Runner.runProtocol(.bob, false, mcm, curr_id, &bob_context);
+            try Runner.runProtocol(.bob, null, false, mcm, curr_id, &bob_context);
         }
     };
 

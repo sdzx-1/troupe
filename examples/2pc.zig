@@ -54,7 +54,7 @@ pub fn main() !void {
             const fill_ptr: []u8 = @ptrCast(&alice_context.xoshiro256.s);
             std.crypto.random.bytes(fill_ptr);
 
-            try Runner.runProtocol(.alice, false, mcm, curr_id, &alice_context);
+            try Runner.runProtocol(.alice, null, false, mcm, curr_id, &alice_context);
         }
     };
 
@@ -64,14 +64,14 @@ pub fn main() !void {
             const fill_ptr: []u8 = @ptrCast(&bob_context.xoshiro256.s);
             std.crypto.random.bytes(fill_ptr);
 
-            try Runner.runProtocol(.bob, false, mcm, curr_id, &bob_context);
+            try Runner.runProtocol(.bob, null, false, mcm, curr_id, &bob_context);
         }
     };
 
     const charlie = struct {
         fn run(mcm: *MvarChannelMap) !void {
             var charlie_context: CharlieContext = .{};
-            try Runner.runProtocol(.charlie, false, mcm, curr_id, &charlie_context);
+            try Runner.runProtocol(.charlie, null, false, mcm, curr_id, &charlie_context);
         }
     };
 
