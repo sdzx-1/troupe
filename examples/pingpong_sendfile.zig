@@ -44,8 +44,11 @@ pub fn main() !void {
     {
         const read_file = try tmp_dir.createFile("test_read", .{});
         defer read_file.close();
-        const str: [1024 * 1024]u8 = @splat(65);
+        var xoros: std.Random.Xoroshiro128 = undefined;
+        std.crypto.random.bytes(@ptrCast(&xoros.s));
+        var str: [1024 * 1024]u8 = @splat(65);
         for (0..100) |_| {
+            xoros.random().bytes(str[0..20]);
             try read_file.writeAll(&str);
         }
     }
