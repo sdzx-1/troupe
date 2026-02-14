@@ -26,40 +26,58 @@ pub const EnterFsmState = pingpong.MkPingPong(Role, .alice, .bob, Context{}, .pi
 pub const Runner = ps.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 
-const QueueChannel = @import("channel.zig").QueueChannel;
+const channel = @import("channel.zig");
+const MvarChannel = channel.MvarChannel;
+
+const total: usize = 2_00_000;
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
-    var evented: std.Io.IoUring = undefined;
-    try evented.init(gpa, .{ .environ = init.minimal.environ });
+    const threaded_io = init.io;
+
+    var evented: std.Io.Uring = undefined;
+    defer evented.deinit();
+
+    try evented.init(gpa, .{
+        // .thread_limit = 0,
+        // .log2_ring_entries = 3,
+        // .backing_allocator_needs_mutex = true,
+    });
     const io = evented.io();
 
     var atomic_val: std.atomic.Value(u32) = .init(0);
 
+    var check_future = threaded_io.async(check_atomic, .{ threaded_io, &atomic_val });
+
+    var mvar_list: std.ArrayList(*channel.Mvar) = .empty;
+    defer mvar_list.deinit(gpa);
+
     var group: std.Io.Group = .init;
 
-    _ = group.async(io, check_atomic, .{ io, &atomic_val });
+    for (0..total) |i| {
+        const mvar_a = try channel.Mvar.init(io, gpa, 20);
+        const mvar_b = try channel.Mvar.init(io, gpa, 20);
+        try mvar_list.append(gpa, mvar_a);
+        try mvar_list.append(gpa, mvar_b);
 
-    for (0..1_000_000) |i| {
-        const queue_a = try gpa.create(std.Io.Queue([]const u8));
-        queue_a.* = .init(try gpa.alloc([]const u8, 2));
+        const mvar_channel_a: channel.MvarChannel = .{ .mvar_a = mvar_a, .mvar_b = mvar_b };
+        const mvar_channel_b: channel.MvarChannel = .{ .mvar_a = mvar_b, .mvar_b = mvar_a };
 
-        const queue_b = try gpa.create(std.Io.Queue([]const u8));
-        queue_b.* = .init(try gpa.alloc([]const u8, 2));
+        group.async(io, wrapper_alice, .{ io, mvar_channel_a, &atomic_val });
+        group.async(io, wrapper_bob, .{ io, mvar_channel_b });
 
-        const qc_a: QueueChannel = .{ .queue_a = queue_a, .queue_b = queue_b, .gpa = gpa, .io = io };
-        const qc_b: QueueChannel = .{ .queue_a = queue_b, .queue_b = queue_a, .gpa = gpa, .io = io };
-
-        _ = group.async(io, wrapper_alice, .{ io, qc_a, &atomic_val });
-        _ = group.async(io, wrapper_bob, .{ io, qc_b });
-
-        if (@mod(i, 10_000) == 0) {
+        if (@mod(i, 1_0000) == 0) {
             std.debug.print("async: {d}\n", .{i});
         }
     }
 
     try group.await(io);
+    check_future.await(threaded_io);
+
+    for (mvar_list.items) |mvar| {
+        mvar.deinit(gpa);
+    }
 }
 
 fn check_atomic(io: std.Io, atomic_val: *std.atomic.Value(u32)) void {
@@ -67,29 +85,30 @@ fn check_atomic(io: std.Io, atomic_val: *std.atomic.Value(u32)) void {
         const val = atomic_val.load(.seq_cst);
         io.sleep(.fromSeconds(1), .awake) catch unreachable;
         std.debug.print("finish: {d}\n", .{val});
-        if (val == 1_000_000) break;
+        if (val == total) break;
     }
 }
 
 const alice = struct {
-    fn run(io_: std.Io, qc: QueueChannel, atomic_val: *std.atomic.Value(u32)) !void {
+    fn run(io_: std.Io, qc: channel.MvarChannel, atomic_val: *std.atomic.Value(u32)) !void {
         var alice_context: AliceContext = .{};
         alice_context.pingpong.counter = atomic_val;
+        io_.sleep(.fromSeconds(1), .awake) catch unreachable;
         try Runner.runProtocol(io_, .alice, true, .{ .bob = qc }, curr_id, &alice_context);
     }
 };
 
 const bob = struct {
-    fn run(io_: std.Io, qc: QueueChannel) !void {
+    fn run(io_: std.Io, qc: channel.MvarChannel) !void {
         var bob_context: BobContext = .{};
         try Runner.runProtocol(io_, .bob, true, .{ .alice = qc }, curr_id, &bob_context);
     }
 };
 
-fn wrapper_alice(io: std.Io, qc: QueueChannel, atomic_val: *std.atomic.Value(u32)) void {
+fn wrapper_alice(io: std.Io, qc: channel.MvarChannel, atomic_val: *std.atomic.Value(u32)) void {
     alice.run(io, qc, atomic_val) catch unreachable;
 }
 
-fn wrapper_bob(io: std.Io, qc: QueueChannel) void {
+fn wrapper_bob(io: std.Io, qc: channel.MvarChannel) void {
     bob.run(io, qc) catch unreachable;
 }

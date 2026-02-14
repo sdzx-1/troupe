@@ -25,112 +25,101 @@ pub const StreamChannel = struct {
 };
 
 pub const QueueChannel = struct {
-    queue_a: *std.Io.Queue([]const u8),
-    queue_b: *std.Io.Queue([]const u8),
+    queue_a: *std.Io.Queue(u8),
+    buff_a: []u8,
+    queue_b: *std.Io.Queue(u8),
+    buff_b: []u8,
     io: std.Io,
     gpa: std.mem.Allocator,
 
     pub fn recv(self: @This(), state_id: anytype, T: type) !T {
-        const str = try self.queue_b.getOne(self.io);
-        var reader = std.Io.Reader.fixed(str);
+        _ = try self.queue_b.getOne(self.io);
+        var reader = std.Io.Reader.fixed(self.buff_b);
         const val = try Codec.decode(&reader, state_id, T);
-        self.gpa.free(str);
         return val;
     }
 
     pub fn send(self: @This(), state_id: anytype, val: anytype) !void {
-        var allocating_writer = std.Io.Writer.Allocating.init(self.gpa);
-        try Codec.encode(&allocating_writer.writer, state_id, val);
-        try self.queue_a.putOne(self.io, allocating_writer.written());
+        var buff_writer = std.Io.Writer.fixed(self.buff_a);
+        try Codec.encode(&buff_writer, state_id, val);
+        try self.queue_a.putOne(self.io, 0);
     }
 };
 
-//Mvar channel
 pub const MvarChannel = struct {
-    queue_a: *std.Io.Queue([]const u8),
-    queue_b: *std.Io.Queue([]const u8),
+    mvar_a: *Mvar,
+    mvar_b: *Mvar,
 
-    pub fn recv(self: @This(), io: std.Io, gpa: std.mem.Allocator, state_id: anytype, T: type) !T {
-        const str = try self.queue_b.getOne(io);
-        var reader = std.Io.Reader.fixed(str);
+    pub fn recv(self: @This(), state_id: anytype, T: type) !T {
+        return try self.mvar_a.recv(state_id, T);
+    }
+
+    pub fn send(self: @This(), state_id: anytype, val: anytype) !void {
+        try self.mvar_b.send(state_id, val);
+    }
+};
+
+pub const Mvar = struct {
+    mutex: std.Io.Mutex,
+    cond: std.Io.Condition,
+    state: MvarState,
+    buff: []u8,
+    size: usize,
+    io: std.Io,
+
+    pub const MvarState = enum { full, empty };
+
+    pub fn init(io: std.Io, gpa: std.mem.Allocator, len: usize) !*Mvar {
+        const ref = try gpa.create(Mvar);
+        const buff = try gpa.alloc(u8, len);
+        ref.* = .{
+            .mutex = .init,
+            .cond = .init,
+            .state = .empty,
+            .buff = buff,
+            .size = 0,
+            .io = io,
+        };
+
+        return ref;
+    }
+
+    pub fn deinit(self: *@This(), gpa: std.mem.Allocator) void {
+        gpa.free(self.buff);
+        gpa.destroy(self);
+    }
+
+    pub fn recv(self: *@This(), state_id: anytype, T: type) !T {
+        try self.mutex.lock(self.io);
+
+        while (self.state == .empty) {
+            try self.cond.wait(self.io, &self.mutex);
+        }
+
+        var reader = std.Io.Reader.fixed(self.buff);
         const val = try Codec.decode(&reader, state_id, T);
-        gpa.free(str);
+
+        self.state = .empty;
+
+        self.mutex.unlock(self.io);
+        self.cond.signal(self.io);
+
         return val;
     }
 
-    pub fn send(self: @This(), io: std.Io, gpa: std.mem.Allocator, state_id: anytype, val: anytype) !void {
-        var allocating_writer = std.Io.Writer.Allocating.init(gpa);
-        try Codec.encode(&allocating_writer.writer, state_id, val);
-        try self.queue_a.putOne(io, allocating_writer.written());
+    pub fn send(self: *@This(), state_id: anytype, val: anytype) !void {
+        try self.mutex.lock(self.io);
+
+        while (self.state == .full) {
+            try self.cond.wait(self.io, &self.mutex);
+        }
+
+        var writer = std.Io.Writer.fixed(self.buff);
+        try Codec.encode(&writer, state_id, val);
+        self.size = writer.buffered().len;
+
+        self.state = .full;
+        self.mutex.unlock(self.io);
+        self.cond.signal(self.io);
     }
 };
-
-pub fn MvarChannelMap(Role: type) type {
-    return struct {
-        hashmap: std.AutoArrayHashMapUnmanaged([2]u8, MvarChannel),
-        log: bool = true,
-        msg_delay: ?i64 = 10, //ms
-        start_timestamp: std.Io.Timestamp,
-        gpa: std.mem.Allocator,
-
-        pub fn init(io: std.Io, gpa: std.mem.Allocator) !@This() {
-            return .{
-                .hashmap = .empty,
-                .start_timestamp = std.Io.Clock.now(.awake, io),
-                .gpa = gpa,
-            };
-        }
-
-        //TODO: deinit
-
-        pub fn generate_all_MvarChannel(
-            self: *@This(),
-            gpa: std.mem.Allocator,
-        ) !void {
-            const enum_fields = @typeInfo(Role).@"enum".fields;
-            var i: usize = 0;
-            while (i < enum_fields.len) : (i += 1) {
-                var j = i + 1;
-                while (j < enum_fields.len) : (j += 1) {
-                    const mvar_a = try gpa.create(std.Io.Queue([]const u8));
-                    mvar_a.* = .init(try gpa.alloc([]const u8, 2));
-
-                    const mvar_b = try gpa.create(std.Io.Queue([]const u8));
-                    mvar_b.* = .init(try gpa.alloc([]const u8, 2));
-
-                    try self.hashmap.put(
-                        gpa,
-                        .{ @as(u8, @intCast(i)), @as(u8, @intCast(j)) },
-                        .{ .queue_a = mvar_a, .queue_b = mvar_b },
-                    );
-
-                    try self.hashmap.put(
-                        gpa,
-                        .{ @as(u8, @intCast(j)), @as(u8, @intCast(i)) },
-                        .{ .queue_a = mvar_b, .queue_b = mvar_a },
-                    );
-                }
-            }
-        }
-
-        pub fn recv(self: @This(), io: std.Io, curr_role: Role, other: Role, state_id: anytype, T: type) !T {
-            const mvar_channel = self.hashmap.get(.{ @intFromEnum(curr_role), @intFromEnum(other) }).?;
-            const res = try mvar_channel.recv(io, self.gpa, state_id, T);
-            if (self.msg_delay) |delay| try io.sleep(.fromMilliseconds(delay), .awake);
-            return res;
-        }
-
-        pub fn send(self: @This(), io: std.Io, curr_role: Role, other: Role, state_id: anytype, val: anytype) !void {
-            if (self.log) std.debug.print("[{d}] statd_id: {d},  {t} send to {t}: {any}\n", .{
-                // (try std.time.Instant.now()).since(self.start_timestamp),
-                (std.Io.Clock.now(.awake, io)).nanoseconds,
-                state_id,
-                curr_role,
-                other,
-                val,
-            });
-            const mvar_channel = self.hashmap.get(.{ @intFromEnum(curr_role), @intFromEnum(other) }).?;
-            try mvar_channel.send(io, self.gpa, state_id, val);
-        }
-    };
-}
