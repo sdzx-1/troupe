@@ -2,6 +2,8 @@
 
 Troupe is a distributed protocol construction library built on Zig's type system. Its core philosophy is **using type determinism to counter communication uncertainty**: protocols are modeled as fully deterministic state machines, correctness is guaranteed through compile-time verification, and all communication unreliability (latency, loss, reordering) is isolated behind replaceable channel layers. Ultimately, developers can construct complex multi-role protocols as if writing single-threaded programs, confident that they will execute as intended in any environment.
 
+[youtube](https://youtu.be/s4WASXIHB_s?si=xKq0E56VFddwet8U), [bilibili](https://www.bilibili.com/video/BV1wgfEBvEHu/?share_source=copy_web&vd_source=06f3616867de4f0c8ec011af7da3e868)
+
 ## Core Idea: Protocol as State Graph
 
 In Troupe, a protocol consists of a set of **states**, each represented as a tagged union. Each field of the union represents a possible message, and the message's "next state" is explicitly specified through a type parameter. For example:
