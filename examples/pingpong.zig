@@ -2,7 +2,6 @@ const std = @import("std");
 const troupe = @import("troupe");
 const Data = troupe.Data;
 const pingpong = @import("./protocols/pingpong.zig");
-const gui = @import("gui.zig");
 
 const Role = enum { alice, bob };
 
@@ -27,18 +26,15 @@ const channel = @import("channel.zig");
 
 const MvarChannelMap = channel.MvarChannelMap(Role);
 
-pub fn main() !void {
-    var gpa_instance = std.heap.DebugAllocator(.{}).init;
-    const gpa = gpa_instance.allocator();
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const gpa = init.gpa;
 
     var counter: std.atomic.Value(usize) = .init(0);
-    var log_array: channel.LogArray = .{
-        .mutex = .{},
-        .log_array = .empty,
-        .allocator = gpa,
-    };
 
-    var mvar_channel_map: MvarChannelMap = .init(&log_array, &counter);
+    var mvar_channel_map: MvarChannelMap = .init(io, true, &counter);
+    defer mvar_channel_map.deinit(gpa);
+
     try mvar_channel_map.generate_all_MvarChannel(gpa, 10);
 
     const alice = struct {
@@ -55,11 +51,9 @@ pub fn main() !void {
         }
     };
 
-    const alice_thread = try std.Thread.spawn(.{}, alice.run, .{&mvar_channel_map});
-    const bob_thread = try std.Thread.spawn(.{}, bob.run, .{&mvar_channel_map});
+    var alice_future = try io.concurrent(alice.run, .{&mvar_channel_map});
+    var bob_future = try io.concurrent(bob.run, .{&mvar_channel_map});
 
-    try gui.start(Role, gpa, &log_array);
-
-    alice_thread.join();
-    bob_thread.join();
+    try alice_future.await(io);
+    try bob_future.await(io);
 }

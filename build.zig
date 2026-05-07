@@ -9,15 +9,6 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
-    const raylib_dep = b.dependency("raylib_zig", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const raylib = raylib_dep.module("raylib"); // main raylib module
-    const raygui = raylib_dep.module("raygui"); // raygui module
-    const raylib_artifact = raylib_dep.artifact("raylib"); // raylib C library
-
     const exe_infos: []const struct {
         name: []const u8,
         path: []const u8,
@@ -26,7 +17,6 @@ pub fn build(b: *std.Build) void {
         .{ .name = "2pc", .path = "examples/2pc.zig" },
         .{ .name = "pingpong", .path = "examples/pingpong.zig" },
         .{ .name = "sendfile", .path = "examples/sendfile.zig" },
-        .{ .name = "pingpong-sendfile", .path = "examples/pingpong_sendfile.zig" },
         .{ .name = "random-pingpong-2pc", .path = "examples/random_pingpong_2pc.zig" },
     };
 
@@ -39,13 +29,9 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
                 .imports = &.{
                     .{ .name = "troupe", .module = mod },
-                    .{ .name = "raylib", .module = raylib },
-                    .{ .name = "raygui", .module = raygui },
                 },
             }),
         });
-
-        exe.linkLibrary(raylib_artifact);
 
         const run_step = b.step(info.name, "Run the " ++ info.name);
 
@@ -88,32 +74,30 @@ pub fn addGraphFile(
     troupe: *std.Build.Module,
     target: std.Build.ResolvedTarget,
 ) std.Build.LazyPath {
-    const options = b.addOptions();
-
-    const writer = options.contents.writer(b.allocator);
-
-    const stdio_writer_setup =
-        \\var stdout_buffer: [1024]u8 = undefined;
-        \\var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-        \\const writer = &stdout_writer.interface;
-        \\defer writer.flush() catch @panic("Failed to flush");
-    ;
+    var allocating: std.Io.Writer.Allocating = .init(b.graph.arena);
+    const writer = &allocating.writer;
 
     writer.print(
         \\const std = @import("std");
         \\const troupe = @import("troupe");
         \\const Target = @import("{s}");
-        \\pub fn main() !void {{
-        \\  var gpa_instance = std.heap.GeneralPurposeAllocator(.{{}}){{}};
+        \\pub fn main(init: std.process.Init) !void {{
+        \\  const io = init.io;
+        \\  var gpa_instance = std.heap.DebugAllocator(.{{}}){{}};
         \\  const gpa = gpa_instance.allocator();
         \\  var graph = try troupe.Graph.initWithFsm(gpa, Target.EnterFsmState);
         \\  defer graph.deinit();
-        \\
-    ++ stdio_writer_setup ++
+        \\  var stdout_buffer: [1024]u8 = undefined;
+        \\  var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
+        \\  const writer = &stdout_writer.interface;
+        \\  defer writer.flush() catch @panic("Failed to flush");
         \\
         \\  try graph.{s}(writer);
         \\}}
     , .{ module_name, "generateDot" }) catch @panic("OOM");
+
+    const options = b.addOptions();
+    options.contents = writer.toArrayList();
 
     const opt_mod = b.createModule(.{
         .root_source_file = options.getOutput(),
@@ -130,7 +114,7 @@ pub fn addGraphFile(
         .root_module = opt_mod,
     });
     const run = b.addRunArtifact(opt_exe);
-    return run.captureStdOut();
+    return run.captureStdOut(.{});
 }
 
 pub fn addInstallGraphFile(

@@ -1,108 +1,145 @@
 const std = @import("std");
+const Io = std.Io;
 const troupe = @import("troupe");
-const Data = troupe.Data;
+const net = std.Io.net;
+const channel = @import("channel.zig");
+const StreamChannel = channel.StreamChannel;
 const sendfile = @import("./protocols/sendfile.zig");
-const gui = @import("gui.zig");
 
-const Role = enum { alice, bob };
-
-const AliceContext = struct {
-    sendfile: sendfile.SendContext,
+pub const AliceContext = struct {
+    send_context: sendfile.SendContext,
 };
 
-const BobContext = struct {
-    sendfile: sendfile.RecvContext,
+pub const BobContext = struct {
+    recv_context: sendfile.RecvContext,
 };
 
-const Context = struct {
+pub const Role = enum { alice, bob };
+
+pub const Context = struct {
     alice: type = AliceContext,
     bob: type = BobContext,
 };
 
-pub const EnterFsmState = sendfile.MkSendFile(
-    Role,
-    .alice,
-    .bob,
-    Context{},
-    1024,
-    .sendfile,
-    .sendfile,
-    troupe.Exit,
-    troupe.Exit,
-).Start;
+fn SendFile(Successed: type, Failed: type) type {
+    return sendfile.MkSendFile(Role, .alice, .bob, Context{}, 20 * 1024 * 1024, .send_context, .recv_context, Successed, Failed);
+}
+
+pub const EnterFsmState = SendFile(troupe.Exit, troupe.Exit).Start;
 
 pub const Runner = troupe.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
-const channel = @import("channel.zig");
 
-const MvarChannelMap = channel.MvarChannelMap(Role);
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
 
-pub fn main() !void {
-    var gpa_instance = std.heap.DebugAllocator(.{}).init;
-    const gpa = gpa_instance.allocator();
-
-    //create tmp dir
-    var tmp_dir_instance = std.testing.tmpDir(.{});
-    defer tmp_dir_instance.cleanup();
-    const tmp_dir = tmp_dir_instance.dir;
+    const cwd = std.Io.Dir.cwd();
 
     {
-        const read_file = try tmp_dir.createFile("test_read", .{});
-        defer read_file.close();
-        const str: [36]u8 = @splat(65);
-        for (0..20) |_| {
-            try read_file.writeAll(&str);
+        const read_file = try cwd.createFile(io, "/tmp/test_read", .{});
+        defer read_file.close(io);
+        var xoros: std.Random.Xoroshiro128 = undefined;
+        io.random(@ptrCast(&xoros.s));
+        var str: [1024 * 1024]u8 = @splat(65);
+        var buf: [1024]u8 = undefined;
+        var read_file_writer = read_file.writer(io, &buf);
+        const writer = &read_file_writer.interface;
+        for (0..100) |_| {
+            xoros.random().bytes(str[0..20]);
+            try writer.writeAll(&str);
         }
     }
 
-    var counter: std.atomic.Value(usize) = .init(0);
-    var log_array: channel.LogArray = .{
-        .mutex = .{},
-        .log_array = .empty,
-        .allocator = gpa,
-    };
+    //Server
+    const localhost = try net.IpAddress.parse("127.0.0.1", 12345);
 
-    var mvar_channel_map: MvarChannelMap = .init(&log_array, &counter);
-    try mvar_channel_map.generate_all_MvarChannel(gpa, 2 * 1024 * 1024);
+    var server = try localhost.listen(io, .{ .reuse_address = true });
+    defer server.deinit(io);
+    //
 
-    const alice = struct {
-        fn run(mcm: *MvarChannelMap, tmp_dir_: std.fs.Dir) !void {
-            var file_reader_buf: [1024 * 2]u8 = undefined;
+    const S = struct {
+        fn run(io_: std.Io, server_address: *const net.IpAddress, dir: std.Io.Dir) !void {
+            const socket = try server_address.connect(io_, .{ .mode = .stream });
+            defer socket.close(io_);
 
-            const read_file = try tmp_dir_.openFile("test_read", .{});
-            defer read_file.close();
+            var reader_buf: [1024 * 1024 * 2]u8 = undefined;
+            var writer_buf: [1024 * 1024 * 2]u8 = undefined;
 
-            var file_reader = read_file.reader(&file_reader_buf);
+            var stream_reader = socket.reader(io_, &reader_buf);
+            var stream_writer = socket.writer(io_, &writer_buf);
 
-            var alice_context: AliceContext = .{
-                .sendfile = .{
-                    .reader = &file_reader.interface,
-                    .file_size = (try read_file.stat()).size,
+            const write_file = try dir.createFile(io_, "/tmp/test_write", .{});
+            defer write_file.close(io_);
+
+            var file_writer_buf: [1024 * 1024 * 2]u8 = undefined;
+
+            var file_writer = write_file.writer(io_, &file_writer_buf);
+
+            var client_context: BobContext = .{
+                .recv_context = .{
+                    .writer = &file_writer.interface,
                 },
             };
-            try Runner.runProtocol(.alice, null, false, mcm, curr_id, &alice_context);
+
+            try Runner.runProtocol(
+                .bob,
+                null,
+                true,
+                .{
+                    .alice = StreamChannel{
+                        .reader = &stream_reader.interface,
+                        .writer = &stream_writer.interface,
+                        .log = false,
+                    },
+                },
+                curr_id,
+                &client_context,
+            );
         }
     };
 
-    const bob = struct {
-        fn run(mcm: *MvarChannelMap, tmp_dir_: std.fs.Dir) !void {
-            const write_file = try tmp_dir_.createFile("test_write", .{});
-            defer write_file.close();
+    const t = try std.Thread.spawn(.{}, S.run, .{ io, &localhost, cwd });
+    defer t.join();
 
-            var file_writer_buf: [1024 * 2]u8 = undefined;
+    //
 
-            var file_writer = write_file.writer(&file_writer_buf);
+    var stream = try server.accept(io);
+    defer stream.close(io);
 
-            var bob_context: BobContext = .{ .sendfile = .{ .writer = &file_writer.interface } };
-            try Runner.runProtocol(.bob, null, false, mcm, curr_id, &bob_context);
-        }
+    var reader_buf: [1024 * 1024 * 2]u8 = undefined;
+    var writer_buf: [1024 * 1024 * 2]u8 = undefined;
+
+    var stream_reader = stream.reader(io, &reader_buf);
+    var stream_writer = stream.writer(io, &writer_buf);
+
+    var file_reader_buf: [1024 * 1024 * 2]u8 = undefined;
+
+    const read_file = try cwd.openFile(io, "/tmp/test_read", .{});
+    defer read_file.close(io);
+
+    var file_reader = read_file.reader(io, &file_reader_buf);
+
+    var server_context: AliceContext = .{
+        .send_context = .{
+            .reader = &file_reader.interface,
+            .file_size = (try read_file.stat(io)).size,
+        },
     };
 
-    const alice_thread = try std.Thread.spawn(.{}, alice.run, .{ &mvar_channel_map, tmp_dir });
-    const bob_thread = try std.Thread.spawn(.{}, bob.run, .{ &mvar_channel_map, tmp_dir });
+    var stid = try std.Thread.spawn(.{}, Runner.runProtocol, .{
+        .alice,
+        null,
+        true,
+        .{
+            .bob = StreamChannel{
+                .reader = &stream_reader.interface,
+                .writer = &stream_writer.interface,
+                .log = false,
+            },
+        },
+        curr_id,
+        &server_context,
+    });
 
-    try gui.start(Role, gpa, &log_array);
-
-    alice_thread.join();
-    bob_thread.join();
+    defer stid.join();
 }

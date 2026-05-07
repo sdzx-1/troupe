@@ -2,6 +2,7 @@ const std = @import("std");
 const Codec = @import("Codec.zig");
 const Notify = @import("troupe").Notify;
 const net = std.net;
+const Io = std.Io;
 
 //stream channel
 
@@ -40,8 +41,9 @@ pub const MvarChannel = struct {
 };
 
 pub const Mvar = struct {
-    mutex: std.Thread.Mutex = .{},
-    cond: std.Thread.Condition = .{},
+    io: Io,
+    mutex: Io.Mutex = .init,
+    cond: Io.Condition = .init,
 
     state: MvarState = .empty,
     buff: []u8,
@@ -50,18 +52,18 @@ pub const Mvar = struct {
 
     pub const MvarState = enum { full, empty };
 
-    pub fn init(gpa: std.mem.Allocator, len: usize) !*Mvar {
+    pub fn init(io: Io, gpa: std.mem.Allocator, len: usize) !*Mvar {
         const ref = try gpa.create(Mvar);
         const buff = try gpa.alloc(u8, len);
-        ref.* = .{ .buff = buff };
+        ref.* = .{ .io = io, .buff = buff };
         return ref;
     }
 
     pub fn recv(self: *@This(), state_id: anytype, T: type) !struct { usize, T } {
-        self.mutex.lock();
+        try self.mutex.lock(self.io);
 
         while (self.state == .empty) {
-            self.cond.wait(&self.mutex);
+            try self.cond.wait(self.io, &self.mutex);
         }
 
         var reader = std.Io.Reader.fixed(self.buff);
@@ -69,17 +71,17 @@ pub const Mvar = struct {
         const val = try Codec.decode(&reader, state_id, T);
 
         self.state = .empty;
-        self.mutex.unlock();
-        self.cond.signal();
+        self.mutex.unlock(self.io);
+        self.cond.signal(self.io);
 
         return .{ msg_id, val };
     }
 
     pub fn send(self: *@This(), msg_id: usize, state_id: anytype, val: anytype) !void {
-        self.mutex.lock();
+        try self.mutex.lock(self.io);
 
         while (self.state == .full) {
-            self.cond.wait(&self.mutex);
+            try self.cond.wait(self.io, &self.mutex);
         }
 
         var writer = std.Io.Writer.fixed(self.buff);
@@ -88,100 +90,36 @@ pub const Mvar = struct {
 
         self.state = .full;
         self.msg_id = msg_id;
-        self.mutex.unlock();
-        self.cond.signal();
-    }
-};
-
-pub const Msg = union(enum) {
-    notify: void,
-    msg_tag: []const u8,
-};
-
-pub const LogArray = struct {
-    mutex: std.Thread.Mutex,
-    log_array: std.ArrayListUnmanaged(Log),
-    allocator: std.mem.Allocator,
-
-    pub const Log = struct {
-        sender: u32,
-        receiver: u32,
-        msg_id: usize,
-        send_timestamp: i64,
-        recv_timestamp: i64,
-        msg: Msg,
-
-        pub fn curr_time_in_during(self: *const @This(), base_timestamp: i64, curr_time: f32) bool {
-            const st: f32 = @floatFromInt(self.send_timestamp - base_timestamp);
-            const rt: f32 = @floatFromInt(self.recv_timestamp - base_timestamp);
-
-            // std.debug.print("{d}, <{d}>  {d}\n", .{ st, curr_time, rt });
-            // std.debug.print("recv: {d}\n", .{self.recv_timestamp});
-
-            return curr_time < rt and curr_time >= st;
-        }
-    };
-
-    pub const SendLog = struct {
-        curr_role: u32,
-        other: u32,
-        msg_id: usize,
-        send_timestamp: i64,
-        msg: Msg,
-    };
-
-    pub const RecvLog = struct {
-        curr_role: u32,
-        other: u32,
-        msg_id: usize,
-        recv_timestamp: i64,
-    };
-
-    fn lastIndexOfScalar(slice: []const Log, recv_log: RecvLog) ?usize {
-        var i: usize = slice.len;
-        while (i != 0) {
-            i -= 1;
-            if (slice[i].msg_id == recv_log.msg_id) return i;
-        }
-        return null;
-    }
-
-    pub fn append(self: *@This(), log: anytype) !void {
-        self.mutex.lock();
-        defer self.mutex.unlock();
-        if (@TypeOf(log) == SendLog) {
-            try self.log_array.append(self.allocator, .{
-                .sender = log.curr_role,
-                .receiver = log.other,
-                .msg_id = log.msg_id,
-                .send_timestamp = log.send_timestamp,
-                .recv_timestamp = 0,
-                .msg = log.msg,
-            });
-        } else if (@TypeOf(log) == RecvLog) {
-            const idx = lastIndexOfScalar(self.log_array.items, log).?;
-            self.log_array.items[idx].recv_timestamp = log.recv_timestamp;
-        } else unreachable;
+        self.mutex.unlock(self.io);
+        self.cond.signal(self.io);
     }
 };
 
 pub fn MvarChannelMap(Role: type) type {
     return struct {
+        io: Io,
+        log: bool,
+        allocted: std.ArrayList(struct { *Mvar, *Mvar, *std.Random.Xoshiro256 }),
         hashmap: std.AutoArrayHashMapUnmanaged([2]u8, MvarChannel),
-        log: bool = true,
-        log_array: *LogArray,
-        msg_delay: bool = true, //ms
         counter: *std.atomic.Value(usize),
 
-        pub fn init(log_array: *LogArray, counter: *std.atomic.Value(usize)) @This() {
-            return .{
-                .hashmap = .empty,
-                .log_array = log_array,
-                .counter = counter,
-            };
+        pub fn init(io: Io, log: bool, counter: *std.atomic.Value(usize)) @This() {
+            return .{ .allocted = .empty, .log = log, .io = io, .hashmap = .empty, .counter = counter };
         }
 
-        //TODO: deinit
+        pub fn deinit(self: *@This(), gpa: std.mem.Allocator) void {
+            for (self.allocted.items) |val| {
+                gpa.free(val.@"0".buff);
+                gpa.free(val.@"1".buff);
+                gpa.destroy(val.@"0");
+                gpa.destroy(val.@"1");
+
+                gpa.destroy(val.@"2");
+            }
+            self.allocted.deinit(gpa);
+
+            self.hashmap.deinit(gpa);
+        }
 
         pub fn generate_all_MvarChannel(
             self: *@This(),
@@ -193,10 +131,11 @@ pub fn MvarChannelMap(Role: type) type {
             while (i < enum_fields.len) : (i += 1) {
                 var j = i + 1;
                 while (j < enum_fields.len) : (j += 1) {
-                    const mvar_a = try Mvar.init(gpa, buff_size);
-                    const mvar_b = try Mvar.init(gpa, buff_size);
+                    const mvar_a = try Mvar.init(self.io, gpa, buff_size);
+                    const mvar_b = try Mvar.init(self.io, gpa, buff_size);
                     const tmp_buff = try gpa.create(std.Random.Xoshiro256);
-                    std.crypto.random.bytes(@ptrCast(&tmp_buff.s));
+                    self.io.random(@ptrCast(&tmp_buff.s));
+                    try self.allocted.append(gpa, .{ mvar_a, mvar_b, tmp_buff });
 
                     try self.hashmap.put(
                         gpa,
@@ -216,18 +155,8 @@ pub fn MvarChannelMap(Role: type) type {
         pub fn recv(self: @This(), curr_role: Role, other: Role, state_id: anytype, T: type) !T {
             const mvar_channel: MvarChannel = self.hashmap.get(.{ @intFromEnum(curr_role), @intFromEnum(other) }).?;
             const res = try mvar_channel.recv(state_id, T);
-            if (self.msg_delay) {
-                const random = mvar_channel.xoshiro256.random();
-                std.Thread.sleep(std.time.ns_per_ms * random.intRangeAtMost(u64, 10, 30));
-            }
             if (self.log) {
-                const recv_log: LogArray.RecvLog = .{
-                    .curr_role = @intFromEnum(curr_role),
-                    .other = @intFromEnum(other),
-                    .msg_id = res[0],
-                    .recv_timestamp = std.time.milliTimestamp(),
-                };
-                try self.log_array.append(recv_log);
+                std.debug.print("{t} recv: {any}\n", .{ curr_role, res[1] });
             }
             return res[1];
         }
@@ -235,18 +164,8 @@ pub fn MvarChannelMap(Role: type) type {
         pub fn send(self: @This(), curr_role: Role, other: Role, state_id: anytype, val: anytype) !void {
             const mvar_channel = self.hashmap.get(.{ @intFromEnum(curr_role), @intFromEnum(other) }).?;
             const msg_id = self.counter.fetchAdd(1, .seq_cst);
-
-            const msg: Msg = if (@TypeOf(val) == Notify) .notify else .{ .msg_tag = @tagName(val) };
-
             if (self.log) {
-                const send_log: LogArray.SendLog = .{
-                    .curr_role = @intFromEnum(curr_role),
-                    .other = @intFromEnum(other),
-                    .msg_id = msg_id,
-                    .send_timestamp = std.time.milliTimestamp(),
-                    .msg = msg,
-                };
-                try self.log_array.append(send_log);
+                std.debug.print("{t} send: {any}\n", .{ curr_role, val });
             }
             try mvar_channel.send(msg_id, state_id, val);
         }

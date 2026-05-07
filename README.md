@@ -180,14 +180,6 @@ zig build sendfile
 Alice sends a file to Bob, and every time she sends a chunk of data, she checks whether the hash values of the sent and received data match.
 
 ![sendfile](./data/sendfile.svg)
-### pingpong-sendfile
-
-```shell
-zig build pingpong-sendfile
-```
-Combining the pingpong protocol and the sendfile protocol
-
-![pingpong-sendfile](./data/pingpong-sendfile.svg)
 ### 2pc
 
 ```shell
