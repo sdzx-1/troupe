@@ -3,7 +3,7 @@ const troupe = @import("troupe");
 const Data = troupe.Data;
 
 pub const SendContext = struct {
-    send_buff: [1024 * 1024]u8 = @splat(0),
+    send_buff: [1024 * 4]u8 = @splat(0),
     reader: *std.Io.Reader,
     file_size: u64,
 
@@ -92,11 +92,6 @@ pub fn MkSendFile(
                         ctx.recved += val.data.len;
                         ctx.hasher.update(val.data);
                         try ctx.writer.writeAll(val.data);
-
-                        std.debug.print("recv: send {Bi}, {d:.4}\n", .{
-                            size,
-                            @as(f32, @floatFromInt(ctx.recved)) / @as(f32, @floatFromInt(ctx.total)),
-                        });
                     },
                     .final => |val| {
                         ctx.recved_hash = val.data.hash;

@@ -62,8 +62,8 @@ pub fn main(init: std.process.Init) !void {
             const socket = try server_address.connect(io_, .{ .mode = .stream });
             defer socket.close(io_);
 
-            var reader_buf: [1024 * 1024 * 2]u8 = undefined;
-            var writer_buf: [1024 * 1024 * 2]u8 = undefined;
+            var reader_buf: [1024 * 5]u8 = undefined;
+            var writer_buf: [1024 * 2]u8 = undefined;
 
             var stream_reader = socket.reader(io_, &reader_buf);
             var stream_writer = socket.writer(io_, &writer_buf);
@@ -71,7 +71,7 @@ pub fn main(init: std.process.Init) !void {
             const write_file = try dir.createFile(io_, "/tmp/test_write", .{});
             defer write_file.close(io_);
 
-            var file_writer_buf: [1024 * 1024 * 2]u8 = undefined;
+            var file_writer_buf: [1024 * 2]u8 = undefined;
 
             var file_writer = write_file.writer(io_, &file_writer_buf);
 
@@ -106,13 +106,13 @@ pub fn main(init: std.process.Init) !void {
     var stream = try server.accept(io);
     defer stream.close(io);
 
-    var reader_buf: [1024 * 1024 * 2]u8 = undefined;
-    var writer_buf: [1024 * 1024 * 2]u8 = undefined;
+    var reader_buf: [1024 * 2]u8 = undefined;
+    var writer_buf: [1024 * 2]u8 = undefined;
 
     var stream_reader = stream.reader(io, &reader_buf);
     var stream_writer = stream.writer(io, &writer_buf);
 
-    var file_reader_buf: [1024 * 1024 * 2]u8 = undefined;
+    var file_reader_buf: [1024 * 2]u8 = undefined;
 
     const read_file = try cwd.openFile(io, "/tmp/test_read", .{});
     defer read_file.close(io);
