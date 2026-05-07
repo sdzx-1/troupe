@@ -14,7 +14,7 @@ pub const Exit = union(enum) {
 };
 
 //When switching protocols, all roles that were not in the previous protocol are notified and informed of the next status.
-pub const Notify = struct { troupe_notify: u8 };
+pub const Notify = struct { troupe_notify: u32 };
 
 pub fn Data(Data_: type, State_: type) type {
     return struct {
