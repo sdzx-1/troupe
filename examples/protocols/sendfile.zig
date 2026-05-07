@@ -32,55 +32,34 @@ pub fn MkSendFile(
     comptime Failed: type,
 ) type {
     return struct {
-        fn sendfile_info(
-            StateName: []const u8,
-            sender_: Role,
-            receiver_: []const Role,
-        ) troupe.ProtocolInfo(
-            "sendfile",
-            Role,
-            context,
-            &.{ sender, receiver },
-            &.{ Successed, Failed },
-        ) {
-            return .{ .name = StateName, .sender = sender_, .receiver = receiver_ };
-        }
+        pub const Start = union(enum) {
+            file_size: Data(u64, Send),
 
-        const SendFileSize = struct {
-            pub fn process(parent_ctx: *@field(context, @tagName(sender))) !u64 {
+            pub const info = sendfile_info("Start", sender, &.{receiver});
+
+            pub fn process(parent_ctx: *@field(context, @tagName(sender))) !@This() {
                 const ctx = sender_ctxFromParent(parent_ctx);
-                return ctx.file_size;
+                return .{ .file_size = .{ .data = ctx.file_size } };
             }
 
-            pub fn preprocess(parent_ctx: *@field(context, @tagName(receiver)), msg: u64) !void {
+            pub fn preprocess_0(parent_ctx: *@field(context, @tagName(receiver)), msg: @This()) !void {
                 const ctx = recver_ctxFromParent(parent_ctx);
-                ctx.total = msg;
+                switch (msg) {
+                    .file_size => |val| {
+                        ctx.total = val.data;
+                    },
+                }
             }
         };
 
-        //Here, a temporary `info` is built to use `Cast`
-        pub const Start = sendfile_info("", sender, &.{}).Cast("SendFileSize", sender, receiver, u64, SendFileSize, Send);
-
         pub const Send = union(enum) {
             // zig fmt: off
-            check     : Data(u64       , CheckHash(@This(), Failed)),
-            send      : Data([]const u8, @This()),
-            final     : Data([]const u8, info.Cast("SendFinalHash", sender, receiver, u64, SendFinalHash, CheckHash(Successed, Failed))),
+            send  : Data([]const u8                          , @This()),
+            check : Data(u64                                 , CheckHash(@This(), Failed)),
+            final : Data(struct {str: []const u8, hash: u64,}, CheckHash(Successed, Failed)),
             // zig fmt: on
 
             pub const info = sendfile_info("Send", sender, &.{receiver});
-
-            const SendFinalHash = struct {
-                pub fn process(parent_ctx: *@field(context, @tagName(sender))) !u64 {
-                    const ctx = sender_ctxFromParent(parent_ctx);
-                    return ctx.hasher.final();
-                }
-
-                pub fn preprocess(parent_ctx: *@field(context, @tagName(receiver)), msg: u64) !void {
-                    const ctx = recver_ctxFromParent(parent_ctx);
-                    ctx.recved_hash = msg;
-                }
-            };
 
             pub fn process(parent_ctx: *@field(context, @tagName(sender))) !@This() {
                 const ctx = sender_ctxFromParent(parent_ctx);
@@ -96,7 +75,7 @@ pub fn MkSendFile(
                 if (n < ctx.send_buff.len) {
                     ctx.hasher.update(ctx.send_buff[0..n]);
                     ctx.send_size += ctx.send_buff.len;
-                    return .{ .final = .{ .data = ctx.send_buff[0..n] } };
+                    return .{ .final = .{ .data = .{ .str = ctx.send_buff[0..n], .hash = ctx.hasher.final() } } };
                 } else {
                     ctx.hasher.update(&ctx.send_buff);
                     ctx.send_size += ctx.send_buff.len;
@@ -120,10 +99,12 @@ pub fn MkSendFile(
                         });
                     },
                     .final => |val| {
-                        size = val.data.len;
-                        ctx.recved += val.data.len;
-                        ctx.hasher.update(val.data);
-                        try ctx.writer.writeAll(val.data);
+                        ctx.recved_hash = val.data.hash;
+                        const str = val.data.str;
+                        size = str.len;
+                        ctx.recved += str.len;
+                        ctx.hasher.update(str);
+                        try ctx.writer.writeAll(str);
                         try ctx.writer.flush();
 
                         std.debug.print("recv: final {Bi}, {d:.4}\n", .{
@@ -168,6 +149,21 @@ pub fn MkSendFile(
                 }
             };
         }
+
+        fn sendfile_info(
+            StateName: []const u8,
+            sender_: Role,
+            receiver_: []const Role,
+        ) troupe.ProtocolInfo(
+            "sendfile",
+            Role,
+            context,
+            &.{ sender, receiver },
+            &.{ Successed, Failed },
+        ) {
+            return .{ .name = StateName, .sender = sender_, .receiver = receiver_ };
+        }
+
         fn sender_ctxFromParent(parent_ctx: *@field(context, @tagName(sender))) *SendContext {
             return &@field(parent_ctx, @tagName(sender_ctx_field));
         }
