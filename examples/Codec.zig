@@ -1,11 +1,13 @@
 const std = @import("std");
 const Notify = @import("troupe").Notify;
+const builtin = @import("builtin");
+const native_endian = builtin.target.cpu.arch.endian();
 
 pub fn encode(writer: *std.Io.Writer, state_id: anytype, val: anytype) !void {
     const id: u8 = @intFromEnum(state_id);
     try writer.writeByte(id);
     if (@TypeOf(val) == Notify) {
-        try writer.writeByte(val.troupe_notify);
+        try writer.writeInt(u32, val.troupe_notify, native_endian);
     } else {
         switch (val) {
             inline else => |msg, tag| {
@@ -15,10 +17,10 @@ pub fn encode(writer: *std.Io.Writer, state_id: anytype, val: anytype) !void {
                     .void => {},
                     .bool => {
                         const v: u8 = if (data) 1 else 0;
-                        try writer.writeInt(u8, v, .little);
+                        try writer.writeInt(u8, v, native_endian);
                     },
                     .int => {
-                        try writer.writeInt(@TypeOf(data), data, .little);
+                        try writer.writeInt(@TypeOf(data), data, native_endian);
                     },
                     .@"struct" => {
                         try data.encode(writer);
@@ -26,7 +28,7 @@ pub fn encode(writer: *std.Io.Writer, state_id: anytype, val: anytype) !void {
                     .pointer => |p| {
                         if (p.is_const == true and p.child == u8) {
                             const len: usize = data.len;
-                            try writer.writeInt(usize, len, .little);
+                            try writer.writeInt(usize, len, native_endian);
                             try writer.writeAll(data);
                         } else {
                             @compileError("Not impl!");
@@ -59,7 +61,7 @@ pub fn decode(reader: *std.Io.Reader, state_id: anytype, T: type) !T {
         return error.IncorrectStatusReceived;
     }
     if (T == Notify) {
-        const next_id = try reader.takeByte();
+        const next_id = try reader.takeInt(u32, native_endian);
         return .{ .troupe_notify = next_id };
     } else {
         const recv_tag_num = try reader.takeByte();
@@ -72,7 +74,7 @@ pub fn decode(reader: *std.Io.Reader, state_id: anytype, T: type) !T {
                         return @unionInit(T, @tagName(t), .{ .data = {} });
                     },
                     .bool => {
-                        const data = try reader.takeInt(u8, .little);
+                        const data = try reader.takeInt(u8, native_endian);
                         const bv: bool = switch (data) {
                             0 => false,
                             1 => true,
@@ -81,13 +83,13 @@ pub fn decode(reader: *std.Io.Reader, state_id: anytype, T: type) !T {
                         return @unionInit(T, @tagName(t), .{ .data = bv });
                     },
                     .int => {
-                        const data = try reader.takeInt(Data, .little);
+                        const data = try reader.takeInt(Data, native_endian);
                         return @unionInit(T, @tagName(t), .{ .data = data });
                     },
 
                     .pointer => |p| {
                         if (p.is_const == true and p.child == u8) {
-                            const len = try reader.takeInt(usize, .little);
+                            const len = try reader.takeInt(usize, native_endian);
                             const str = try reader.take(len);
                             return @unionInit(T, @tagName(t), .{ .data = str });
                         } else {
