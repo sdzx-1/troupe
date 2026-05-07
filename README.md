@@ -117,7 +117,7 @@ Whether implementing a simple ping-pong, a multi-role multi-stage two-phase comm
 
 
 ## Adding troupe to your project
-Requires zig version greater than 0.15.0.
+Requires zig version 0.16.0.
 
 
 Download and add troupe as a dependency by running the following command in your project root:
@@ -165,39 +165,83 @@ If the participants of the two protocols are different, then we need to notify a
 This [issue](https://github.com/sdzx-1/troupe/issues/15) describes the situation.
 
 ## Examples
+
 ### pingpong
+
 ```shell
 zig build pingpong
 ```
-Alice and Bob have multiple ping-pong communications back and forth.
+
+A basic two-role alternating communication protocol between Alice and Bob. Alice sends a number to Bob; Bob increments it and sends it back. After several exchanges, the protocol exits.
+
+This is the simplest possible multi-role Troupe example. It demonstrates:
+- **Two-role state machine**: States alternate between `Ping` (Alice as sender) and `Pong` (Bob as sender), showing how `sender` and `receiver` swap between states.
+- **Parameterized protocol factory**: `MkPingPong` is a generic protocol template that can be reused with different roles and exit states.
+- **Cast state**: `PongFn` is defined as a `Cast` — a higher-order state that wraps a simple function call into a protocol state. This is a reusable building block for request-response patterns.
+- **Branch and full notification**: `Ping` has two fields (`ping` and `next`). Since both `alice` and `bob` are in `internal_roles`, the branch condition `1 + receiver.len == internal_roles.len` requires that all internal roles are notified — satisfied here because `receiver = &.{server}`.
+
+The protocol is defined in [`examples/protocols/pingpong.zig`](./examples/protocols/pingpong.zig) as a reusable `MkPingPong` function, and wired into the main entry point in [`examples/pingpong.zig`](./examples/pingpong.zig).
 
 ![pingpong](./data/pingpong.svg)
+
+---
+
 ### sendfile
 
 ```shell
 zig build sendfile
 ```
-Alice sends a file to Bob, and every time she sends a chunk of data, she checks whether the hash values of the sent and received data match.
+
+Alice sends a file to Bob over a TCP connection. Data is streamed in 1 MB chunks. After every 20 MB of data, or when the file ends, the sender sends a hash of the transmitted data; the receiver independently computes the hash and reports whether it matches, enabling early detection of corruption.
+
+This example demonstrates real-world protocol design with Troupe:
+- **Self-looping state for streaming**: `Send.send: Data([]const u8, @This())` — the `Send` state references itself, forming a cycle in the state graph that supports arbitrary-length data transfer. This is the pattern for any streaming protocol.
+- **State template as protocol subroutine**: `CheckHash(A, B)` is not a single fixed state but a **parameterized state template**. It accepts two type parameters — the success continuation `A` and the failure continuation `B` — and is instantiated twice with different continuations: `CheckHash(@This(), Failed)` for periodic checkpoints (continue sending on success), and `CheckHash(Successed, Failed)` for the final chunk (exit on success).
+- **Receiver-driven integrity verification**: The sender commits to a hash; the receiver independently computes the hash and reports the result. The `CheckHash` state reverses sender/receiver roles: the verification result flows from receiver back to sender.
+- **Multi-state exit semantics**: `CheckHash` has two branches (`Successed` / `Failed`), each connecting to a different continuation path. This satisfies the branch notification rule: since both roles are internal, `receiver.len` must be 1.
+- **TCP StreamChannel**: Unlike the in-memory channel used in other examples, sendfile runs over real TCP sockets, demonstrating that the channel abstraction is transparent to protocol logic. The same protocol definition works with any channel implementation.
+
+The protocol is defined in [`examples/protocols/sendfile.zig`](./examples/protocols/sendfile.zig), with TCP setup and file I/O in [`examples/sendfile.zig`](./examples/sendfile.zig).
 
 ![sendfile](./data/sendfile.svg)
+
+---
+
 ### 2pc
 
 ```shell
 zig build 2pc
 ```
-A two-phase protocol demo with Charlie as the coordinator and Alice and Bob as participants.
-Alice and Bob have no actual transactions; they simply randomly return true or false.
+
+A simulation of the two-phase commit protocol. Charlie (coordinator) initiates a transaction by asking Alice and Bob (participants) to vote. Each participant randomly votes yes or no. If both vote yes, the transaction commits; otherwise, the coordinator may retry or abort.
+
+This example demonstrates multi-role branching and retry logic:
+- **Three-role coordination**: Unlike the two-role examples, 2pc involves three roles with different responsibilities — one coordinator and two participants. The state graph integrates all three perspectives into a single definition.
+- **Sequential polling with broadcast start**: `Begin` notifies both participants simultaneously (`receiver = &.{alice, bob}`), but responses are collected one at a time through `AliceResp` and `BobResp` (each with `receiver = &.{coordinator}`). This pattern — broadcast notification followed by sequential collection — is common in multi-round protocols.
+- **Branch state with retry loop**: `Check` has three branches (`succcessed`, `failed`, `failed_retry`). The `failed_retry` branch transitions back to `Begin`, forming a retry cycle in the state graph. This is the pattern for any protocol with recovery or retry.
+- **Context accumulation across states**: The coordinator's context tracks a counter that is incremented by `preprocess_0` handlers in `AliceResp` and `BobResp`. When `Check.process` runs, it uses this accumulated count to decide whether to commit, abort, or retry. This shows how context bridges the gap between protocol states.
+- **Parameterized exit gates**: `mk2pc` accepts `Successed` and `Failed` as type parameters, making it a reusable protocol template that can be embedded in larger compositions.
+
+The protocol is defined in [`examples/protocols/two_phase_commit.zig`](./examples/protocols/two_phase_commit.zig), with the main entry point in [`examples/2pc.zig`](./examples/2pc.zig).
 
 ![2pc](./data/2pc.svg)
+
+---
+
 ### random-pingpong-2pc
 
 ```shell
 zig build random-pingpong-2pc
 ```
-A complex protocol involving four actors has an additional selector to select the combined protocol to run.
-Here, we arbitrarily combine the pingpong protocol and the 2pc protocol.
-Note that the communication actors in pingpong and 2pc are different.
-troupe supports this combination of different protocols, even if the protocols have different numbers of participants.
 
+A Selector role randomly chooses one of three composite protocol paths to execute, then repeats for 300 rounds. Each path chains multiple pingpong exchanges between different pairs followed by a two-phase commit with a different coordinator.
+
+This is Troupe's showcase example, demonstrating full compositional power:
+- **Protocol composition with different participant sets**: PingPong involves 2 roles; 2PC involves 3 roles. Troupe bridges these different sets through the `extern_state` mechanism — when one sub-protocol ends, `internal_roles[0]` automatically sends a `Notify` message to all roles not participating in that sub-protocol, ensuring the entire system stays synchronized.
+- **Nested type composition**: The protocol topology is expressed as a single nested type expression — `PingPong(.alice, .bob, PingPong(.bob, .charlie, ...).Ping).Ping`. The compiler expands this nesting into a flat state graph at compile time, validating all paths.
+- **Dynamic runtime choice, compile-time verified**: The Selector's `process` function uses random numbers to pick a branch. All branches are pre-computed in the state graph; the runtime follows the chosen path. The compiler has validated **every possible path** before the program runs.
+- **Aggregated context across sub-protocols**: Each role's context bundles fields for both pingpong and 2PC participation. When a role enters a sub-protocol, `info.Ctx` provides access to the relevant subset of its context, keeping handler functions type-safe and focused.
+
+The full composite protocol is defined in [`examples/random_pingpong_2pc.zig`](./examples/random_pingpong_2pc.zig), building on the reusable protocol definitions in [`examples/protocols/`](./examples/protocols/).
 
 ![random-pingpong-2pc](./data/random-pingpong-2cp.svg)
