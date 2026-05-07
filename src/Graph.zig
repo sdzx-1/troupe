@@ -137,8 +137,6 @@ pub fn initWithFsm(allocator: std.mem.Allocator, comptime State_: type) !Graph {
     const state_map: troupe.StateMap = comptime .init(State_);
 
     inline for (state_map.states, state_map.state_machine_names, 0..) |State, fsm_name, state_idx| {
-        //node description
-        // const description =
         try nodes.append(arena_allocator, .{
             .state_description = if (State == troupe.Exit) "Exit" else try std.fmt.allocPrint(
                 arena_allocator,

@@ -286,4 +286,4 @@ This is Troupe's showcase example, demonstrating full compositional power:
 
 The full composite protocol is defined in [`examples/random_pingpong_2pc.zig`](./examples/random_pingpong_2pc.zig), building on the reusable protocol definitions in [`examples/protocols/`](./examples/protocols/).
 
-![random-pingpong-2pc](./data/random-pingpong-2cp.svg)
+![random-pingpong-2pc](./data/random-pingpong-2pc.svg)

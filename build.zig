@@ -20,6 +20,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "random-pingpong-2pc", .path = "examples/random_pingpong_2pc.zig" },
     };
 
+    const gen_graph = b.step("gen-graphs", "Generate SVG graph for the examples");
+
     inline for (exe_infos) |info| {
         const exe = b.addExecutable(.{
             .name = info.name,
@@ -27,36 +29,28 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path(info.path),
                 .target = target,
                 .optimize = optimize,
-                .imports = &.{
-                    .{ .name = "troupe", .module = mod },
-                },
+                .imports = &.{.{ .name = "troupe", .module = mod }},
             }),
         });
 
         const run_step = b.step(info.name, "Run the " ++ info.name);
 
-        const install_artifact = b.addInstallArtifact(exe, .{});
-        run_step.dependOn(&install_artifact.step);
-
-        //install state graph
-        const install_file = addInstallGraphFile(
-            b,
-            info.name,
-            exe.root_module,
-            mod,
-            target,
-            .{ .custom = "graph" },
-        );
-        run_step.dependOn(&install_file.step);
-
         const run_cmd = b.addRunArtifact(exe);
         run_step.dependOn(&run_cmd.step);
-
-        run_cmd.step.dependOn(b.getInstallStep());
 
         if (b.args) |args| {
             run_cmd.addArgs(args);
         }
+
+        addGraphToStep(
+            b,
+            gen_graph,
+            exe.root_module,
+            target,
+            mod,
+            .{ .custom = "../data" },
+            info.name,
+        );
     }
 
     const mod_tests = b.addTest(.{
@@ -65,6 +59,30 @@ pub fn build(b: *std.Build) void {
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const test_step = b.step("test", "Run tests");
     test_step.dependOn(&run_mod_tests.step);
+}
+
+fn addGraphToStep(
+    b: *std.Build,
+    step: *std.Build.Step,
+    mod: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    troupe: *std.Build.Module,
+    install_dir: std.Build.InstallDir,
+    dst_rel_path: []const u8,
+) void {
+    const graph_file = addGraphFile(b, "graph", mod, troupe, target);
+
+    const dot_cmd = b.addSystemCommand(&.{"dot"});
+
+    dot_cmd.addArg("-Tsvg");
+
+    dot_cmd.addFileArg(graph_file);
+
+    const graph_svg = dot_cmd.captureStdOut(.{});
+
+    const install_graph_svg = b.addInstallFileWithDir(graph_svg, install_dir, b.fmt("{s}.svg", .{dst_rel_path}));
+
+    step.dependOn(&install_graph_svg.step);
 }
 
 pub fn addGraphFile(
