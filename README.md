@@ -201,6 +201,48 @@ This example demonstrates real-world protocol design with Troupe:
 - **Multi-state exit semantics**: `CheckHash` has two branches (`Successed` / `Failed`), each connecting to a different continuation path. This satisfies the branch notification rule: since both roles are internal, `receiver.len` must be 1.
 - **TCP StreamChannel**: Unlike the in-memory channel used in other examples, sendfile runs over real TCP sockets, demonstrating that the channel abstraction is transparent to protocol logic. The same protocol definition works with any channel implementation.
 
+**A closer look at the `Send` state** — the most insightful part of this protocol is its type definition:
+
+```zig
+pub const Send = union(enum) {
+    send  : Data([]const u8                          , @This()),
+    check : Data(u64                                 , CheckHash(@This(), Failed)),
+    final : Data(struct {str: []const u8, hash: u64,}, CheckHash(Successed, Failed)),
+};
+```
+
+Three branches, three different continuations — the entire transmission strategy is encoded in these three lines:
+
+- **`.send → @This()`**: Transmit a chunk, then loop back to the same state. The self-reference creates an implicit `while` loop in the state graph, enabling streaming without a dedicated loop construct.
+- **`.check → CheckHash(@This(), Failed)`**: At batch boundaries, pause transmission to verify integrity. The continuation `@This()` (i.e., `Send`) is the success path — pass verification and resume streaming. `Failed` is the abort path.
+- **`.final → CheckHash(Successed, Failed)`**: End of file. Send the last chunk with its cumulative hash. Both paths lead to termination — `CheckHash` here uses `Successed` and `Failed` as distinct exit routes rather than a return to `Send`.
+
+This is the **same `CheckHash` template invoked with different continuations**. The verification logic is written once; only the "where to go next" differs between the two call sites. The `process` function that decides which branch to take is equally compact — it reads a chunk from the file, then routes based on `send_size >= batch_size` and whether the read reached end-of-file:
+
+```zig
+pub fn process(parent_ctx: *@field(context, @tagName(sender))) !@This() {
+    const ctx = sender_ctxFromParent(parent_ctx);
+    if (ctx.send_size >= batch_size) {
+        ctx.send_size = 0;
+        const curr_hash = ctx.hasher.final();
+        ctx.hasher = std.hash.XxHash3.init(0);
+        return .{ .check = .{ .data = curr_hash } };
+    }
+    const n = try ctx.reader.readSliceShort(&ctx.send_buff);
+    if (n < ctx.send_buff.len) {
+        // end of file — final chunk with hash
+        ...
+        return .{ .final = .{ .data = .{ .str = ctx.send_buff[0..n], .hash = ctx.hasher.final() } } };
+    } else {
+        // normal chunk — keep streaming
+        ...
+        return .{ .send = .{ .data = &ctx.send_buff } };
+    }
+}
+```
+
+The `Send` state demonstrates a principle that recurs throughout well-designed Troupe protocols: **the type signature tells the structural story; the handler function fills in the runtime details.** Reading the three union fields, you already know the entire flow — streaming, checkpointing, termination. The `process` function is just the concrete filling of that skeleton.
+
 The protocol is defined in [`examples/protocols/sendfile.zig`](./examples/protocols/sendfile.zig), with TCP setup and file I/O in [`examples/sendfile.zig`](./examples/sendfile.zig).
 
 ![sendfile](./data/sendfile.svg)
