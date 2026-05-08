@@ -18,6 +18,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "pingpong", .path = "examples/pingpong.zig" },
         .{ .name = "sendfile", .path = "examples/sendfile.zig" },
         .{ .name = "random-pingpong-2pc", .path = "examples/random_pingpong_2pc.zig" },
+        .{ .name = "fm_client", .path = "examples/fm_client.zig" },
+        .{ .name = "fm_server", .path = "examples/fm_server.zig" },
     };
 
     const gen_graph = b.step("gen-graphs", "Generate SVG graph for the examples");
