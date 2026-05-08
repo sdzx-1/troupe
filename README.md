@@ -38,21 +38,7 @@ Role = enum { client, server }
 
 ## 状态机总图
 
-```
-                    Command (client → server)
-                   /    |     |     |    |    |   \
-                  /     |     |     |    |    |    \
-            ListDir  ReadFile WriteFile Delete Stat Mkdir ─┐
-            (s→c)    (s→c)   (c→s)    (s→c) (s→c) (s→c)  │
-               │        │       │        │     │     │     │
-               ▼        ▼       ▼        ▼     ▼     ▼     │
-            ┌───────────────────────────────────────────┐   │
-            │           Command (client → server)        │◄──┘
-            └───────────────────────────────────────────┘
-                              │
-                              ▼
-                          Success (结束)
-```
+![remote_fm 协议状态机](./data/fm_client.svg)
 
 对于 `WriteFile`，实际多出一个 `WriteDone` 状态用于返回结果：
 
