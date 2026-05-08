@@ -79,7 +79,7 @@ pub fn mk2pc(
             };
 
         pub const Check = union(enum) {
-            succcessed: Data(void, Successed),
+            succeeded: Data(void, Successed),
             failed: Data(void, Failed),
             failed_retry: Data(void, Begin),
 
@@ -88,7 +88,7 @@ pub fn mk2pc(
             pub fn process(ctx: *info.Ctx(coordinator)) !@This() {
                 if (ctx.counter == 2) {
                     ctx.retry_times = 0;
-                    return .{ .succcessed = .{ .data = {} } };
+                    return .{ .succeeded = .{ .data = {} } };
                 } else if (ctx.retry_times < 40) {
                     ctx.retry_times += 1;
                     std.debug.print("2pc failed retry: {d}\n", .{ctx.retry_times});

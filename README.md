@@ -10,19 +10,23 @@ In Troupe, a protocol consists of a set of **states**, each represented as a tag
 
 ```zig
 const Ping = union(enum) {
-    ping: Data(u32, Pong),
-    // ...
+    ping: Data(i32, Pong),       // send i32 → transition to Pong
+    next: Data(void, NextState), // exit → transition to NextState
+};
+
+const Pong = union(enum) {
+    pong: Data(i32, Ping),       // send i32 → transition back to Ping
 };
 ```
 
-`Data(Payload, NextState)` is a simple wrapper that carries the actual payload and specifies the next state the protocol should enter after this message is sent or received.
+`Data(Payload, NextState)` is a simple wrapper that carries the actual payload and specifies the next state the protocol should enter after this message is sent or received. The next state is always another `union(enum)` — here, `Ping` transitions to `Pong` and vice versa, forming a state graph.
 
-Each state also carries compile-time metadata `info` describing the role relationships in this state:
+Each state also carries compile-time metadata `info` describing the role relationships in this state. The `info` value carries `sender` and `receiver`; the type `@TypeOf(info)` additionally carries `internal_roles` and `extern_state`:
 
 - `sender`: who sends the message in this state.
 - `receiver`: who will receive this message (can be multiple).
-- `internal_roles`: the set of all roles participating in this protocol.
-- `extern_state`: list of "external states" that may be entered after this protocol ends (typically entry or exit points of other protocols).
+- `@TypeOf(info).internal_roles`: the set of all roles participating in this protocol.
+- `@TypeOf(info).extern_state`: list of "external states" that may be entered after this protocol ends (typically entry or exit points of other protocols).
 
 This information is not just documentation—it is used by the library for compile-time validation and runtime dispatching.
 
@@ -32,7 +36,7 @@ At runtime, each role (e.g., `alice`, `bob`) independently runs the `Runner.runP
 
 - **If the role is the sender**: It calls the state's `process` function to generate a message, then sends this message through the channel to all roles in the `receiver` list. It then transitions to the next state specified by the message's `NextState`.
 - **If the role is a receiver**: It receives a message from the channel (from the sender), calls the corresponding preprocess function `preprocess_N` (where N is the role's position in the `receiver` list), and then transitions to the next state specified by the message.
-- **If the role does not participate in this round**: The state is irrelevant to it—it simply skips this round, but may receive a "notification" from other roles (see below) to synchronize to a new state.
+- **If the role does not participate in this round**: The state is irrelevant to it—it simply skips this round, but always waits to receive a "notification" from other roles (see below) to synchronize to a new state.
 
 This design ensures that the execution path for each role is **unique and deterministic**: each state explicitly defines who sends, who receives, what is sent, and where to go next.
 
@@ -67,7 +71,7 @@ At compile time, the `reachableStates` function recursively expands all nested s
 - Do each state's sender and receiver belong to internal roles?
 - Does the receiver list contain the sender? (Not allowed)
 - Are there duplicate receivers?
-- For branch states, is the number of unnotified roles correct?
+- For branch states, is the number of roles not yet notified correct?
 - Do all states' context types match (comparing per-role fields)?
 
 These checks ensure the composed protocol remains a valid deterministic state machine.
@@ -86,10 +90,10 @@ For example:
 
 ```zig
 const Context = struct {
-    alice: AliceContext,
-    bob: BobContext,
-    charlie: CharlieContext,
-    selector: SelectorContext,
+    alice: type = AliceContext,
+    bob: type = BobContext,
+    charlie: type = CharlieContext,
+    selector: type = SelectorContext,
 };
 ```
 
@@ -103,7 +107,7 @@ Troupe performs a depth-first traversal of all reachable states at compile time 
 - Validates the receiver count rule for branch states.
 - Ensures senders and receivers are within internal roles.
 - Confirms no role is both sender and receiver.
-- Checks that external state lists don't contain internal states (avoiding circular dependencies).
+
 
 Any rule violation results in a compile error with a clear message. This means that once a program compiles successfully, the protocol composition is guaranteed legal—runtime will never encounter role mismatches or lost states.
 
@@ -143,27 +147,6 @@ You should now be able to import troupe in your module's code:
 const troupe = @import("troupe");
 ```
 
-## Core idea
-### 0. troupe assumes that communication between roles is sequential
-troupe ensures that the behavior of each role is completely determined by the state machine.
-If the communication itself can guarantee the order (such as TCP), then the protocol described by troupe is deterministic and the behavior of all roles is consistent.
-
-### 1. Compositionality of State
-
-Through [polystate](https://github.com/sdzx-1/polystate), we know that state can be used as a function and parameter, which we call high-order state.
-
-### 2. Viewing the Communication Process as State Machines
-Through the introduction [here](https://discourse.haskell.org/t/introduction-to-typed-session/10100), we know that communication can be modeled using a state machine.
-
-### 3. How to handle branch status in multi-role communication
-Multi-role communication differs from client-server communication in that troupe requires that messages generated during branching must be notified to all other parties.
-This ensures that all roles are synchronized.
-
-### 4. How to Combine Protocols with Different Participants
-If two protocol participants are exactly the same, then the states are directly combined.
-If the participants of the two protocols are different, then we need to notify all other roles except the roles of the previous protocol.
-This [issue](https://github.com/sdzx-1/troupe/issues/15) describes the situation.
-
 ## Examples
 
 ### pingpong
@@ -177,8 +160,8 @@ A basic two-role alternating communication protocol between Alice and Bob. Alice
 This is the simplest possible multi-role Troupe example. It demonstrates:
 - **Two-role state machine**: States alternate between `Ping` (Alice as sender) and `Pong` (Bob as sender), showing how `sender` and `receiver` swap between states.
 - **Parameterized protocol factory**: `MkPingPong` is a generic protocol template that can be reused with different roles and exit states.
-- **Cast state**: `PongFn` is defined as a `Cast` — a higher-order state that wraps a simple function call into a protocol state. This is a reusable building block for request-response patterns.
-- **Branch and full notification**: `Ping` has two fields (`ping` and `next`). Since both `alice` and `bob` are in `internal_roles`, the branch condition `1 + receiver.len == internal_roles.len` requires that all internal roles are notified — satisfied here because `receiver = &.{server}`.
+- **Cast state**: `PongFn` provides the handler functions; `info.Cast(...)` wraps it into a protocol state — a reusable building block for request-response patterns.
+- **Branch and full notification**: `Ping` has two fields (`ping` and `next`). Since both `alice` and `bob` are in `internal_roles`, the branch condition `1 + receiver.len == internal_roles.len` requires that all internal roles are notified — satisfied here because `receiver = &.{bob}`.
 
 The protocol is defined in [`examples/protocols/pingpong.zig`](./examples/protocols/pingpong.zig) as a reusable `MkPingPong` function, and wired into the main entry point in [`examples/pingpong.zig`](./examples/pingpong.zig).
 
@@ -192,13 +175,13 @@ The protocol is defined in [`examples/protocols/pingpong.zig`](./examples/protoc
 zig build sendfile
 ```
 
-Alice sends a file to Bob over a TCP connection. Data is streamed in 4 KB chunks. After every 20 MB of data, or when the file ends, the sender sends a hash of the transmitted data; the receiver independently computes the hash and reports whether it matches, enabling early detection of corruption.
+Alice sends a file to Bob over a TCP connection. Data is streamed in 4 KB chunks. After every 20 MiB of data, or when the file ends, the sender sends a hash of the transmitted data; the receiver independently computes the hash and reports whether it matches, enabling early detection of corruption.
 
 This example demonstrates real-world protocol design with Troupe:
 - **Self-looping state for streaming**: `Send.send: Data([]const u8, @This())` — the `Send` state references itself, forming a cycle in the state graph that supports arbitrary-length data transfer. This is the pattern for any streaming protocol.
 - **State template as protocol subroutine**: `CheckHash(A, B)` is not a single fixed state but a **parameterized state template**. It accepts two type parameters — the success continuation `A` and the failure continuation `B` — and is instantiated twice with different continuations: `CheckHash(@This(), Failed)` for periodic checkpoints (continue sending on success), and `CheckHash(Successed, Failed)` for the final chunk (exit on success).
 - **Receiver-driven integrity verification**: The sender commits to a hash; the receiver independently computes the hash and reports the result. The `CheckHash` state reverses sender/receiver roles: the verification result flows from receiver back to sender.
-- **Multi-state exit semantics**: `CheckHash` has two branches (`Successed` / `Failed`), each connecting to a different continuation path. This satisfies the branch notification rule: since both roles are internal, `receiver.len` must be 1.
+- **Multi-state exit semantics**: `CheckHash` has two branches (`succeeded` / `failed`), each connecting to a different continuation path. This satisfies the branch notification rule: since both roles are internal, `receiver.len` must be 1.
 - **TCP StreamChannel**: Unlike the in-memory channel used in other examples, sendfile runs over real TCP sockets, demonstrating that the channel abstraction is transparent to protocol logic. The same protocol definition works with any channel implementation.
 
 **A closer look at the `Send` state** — the most insightful part of this protocol is its type definition:
@@ -233,7 +216,7 @@ pub fn process(parent_ctx: *@field(context, @tagName(sender))) !@This() {
 
     if (n < ctx.send_buff.len) {
         ctx.hasher.update(ctx.send_buff[0..n]);
-        ctx.send_size += ctx.send_buff.len;
+        ctx.send_size += n;
         return .{ .final = .{ .data = .{ .str = ctx.send_buff[0..n], .hash = ctx.hasher.final() } } };
     } else {
         ctx.hasher.update(&ctx.send_buff);
@@ -262,7 +245,7 @@ A simulation of the two-phase commit protocol. Charlie (coordinator) initiates a
 This example demonstrates multi-role branching and retry logic:
 - **Three-role coordination**: Unlike the two-role examples, 2pc involves three roles with different responsibilities — one coordinator and two participants. The state graph integrates all three perspectives into a single definition.
 - **Sequential polling with broadcast start**: `Begin` notifies both participants simultaneously (`receiver = &.{alice, bob}`), but responses are collected one at a time through `AliceResp` and `BobResp` (each with `receiver = &.{coordinator}`). This pattern — broadcast notification followed by sequential collection — is common in multi-round protocols.
-- **Branch state with retry loop**: `Check` has three branches (`succcessed`, `failed`, `failed_retry`). The `failed_retry` branch transitions back to `Begin`, forming a retry cycle in the state graph. This is the pattern for any protocol with recovery or retry.
+- **Branch state with retry loop**: `Check` has three branches (`succeeded`, `failed`, `failed_retry`). The `failed_retry` branch transitions back to `Begin`, forming a retry cycle in the state graph. This is the pattern for any protocol with recovery or retry.
 - **Context accumulation across states**: The coordinator's context tracks a counter that is incremented by `preprocess_0` handlers in `AliceResp` and `BobResp`. When `Check.process` runs, it uses this accumulated count to decide whether to commit, abort, or retry. This shows how context bridges the gap between protocol states.
 - **Parameterized exit gates**: `mk2pc` accepts `Successed` and `Failed` as type parameters, making it a reusable protocol template that can be embedded in larger compositions.
 

@@ -21,8 +21,8 @@
 </g>
 <g id="clust3" class="cluster">
 <title>cluster_fsm_1</title>
-<polygon fill="none" stroke="black" points="66,-16 66,-93.25 163,-93.25 163,-16 66,-16"/>
-<text xml:space="preserve" text-anchor="middle" x="114.5" y="-75.95" font-family="Times,serif" font-size="14.00">troupe_exit</text>
+<polygon fill="none" stroke="black" points="114,-16 114,-93.25 211,-93.25 211,-16 114,-16"/>
+<text xml:space="preserve" text-anchor="middle" x="162.5" y="-75.95" font-family="Times,serif" font-size="14.00">troupe_exit</text>
 </g>
 <!-- 0 -->
 <g id="node1" class="node">
@@ -79,22 +79,22 @@
 <!-- 4 -->
 <g id="node5" class="node">
 <title>4</title>
-<polygon fill="none" stroke="navy" points="148.62,-60 79.38,-60 79.38,-24 148.62,-24 148.62,-60"/>
-<text xml:space="preserve" text-anchor="middle" x="114" y="-37.33" font-family="Times,serif" font-size="14.00">[4] Exit</text>
+<polygon fill="none" stroke="navy" points="196.62,-60 127.38,-60 127.38,-24 196.62,-24 196.62,-60"/>
+<text xml:space="preserve" text-anchor="middle" x="162" y="-37.33" font-family="Times,serif" font-size="14.00">[4] Exit</text>
 </g>
 <!-- 3&#45;&gt;4 -->
 <g id="edge4" class="edge">
 <title>3&#45;&gt;4</title>
-<path fill="none" stroke="brown" d="M106.94,-136.09C99.63,-131.51 93.1,-125.74 88.5,-118.5 79.01,-103.55 85.38,-84.69 94.12,-69.55"/>
-<polygon fill="brown" stroke="brown" points="96.83,-71.81 99.26,-61.5 90.93,-68.05 96.83,-71.81"/>
-<text xml:space="preserve" text-anchor="middle" x="128.25" y="-105.2" font-family="Times,serif" font-size="14.00" fill="brown">succcessed</text>
+<path fill="none" stroke="brown" d="M130.28,-136.31C124.03,-131.44 118.32,-125.51 114.75,-118.5 105.94,-101.23 117.1,-82.76 130.77,-68.42"/>
+<polygon fill="brown" stroke="brown" points="133.14,-71 137.9,-61.54 128.27,-65.97 133.14,-71"/>
+<text xml:space="preserve" text-anchor="middle" x="151.88" y="-105.2" font-family="Times,serif" font-size="14.00" fill="brown">succeeded</text>
 </g>
 <!-- 3&#45;&gt;4 -->
 <g id="edge5" class="edge">
 <title>3&#45;&gt;4</title>
-<path fill="none" stroke="brown" d="M168.58,-136C170.97,-125.58 172.33,-112.28 168,-101.25 163.09,-88.74 154.1,-77.31 144.84,-67.96"/>
-<polygon fill="brown" stroke="brown" points="147.5,-65.66 137.82,-61.33 142.69,-70.75 147.5,-65.66"/>
-<text xml:space="preserve" text-anchor="middle" x="190.69" y="-105.2" font-family="Times,serif" font-size="14.00" fill="brown">failed</text>
+<path fill="none" stroke="brown" d="M179.19,-136.23C183.18,-130.94 186.91,-124.82 189,-118.5 194.35,-102.33 188.42,-84.38 180.77,-70.04"/>
+<polygon fill="brown" stroke="brown" points="183.9,-68.45 175.81,-61.61 177.87,-72.01 183.9,-68.45"/>
+<text xml:space="preserve" text-anchor="middle" x="210.92" y="-105.2" font-family="Times,serif" font-size="14.00" fill="brown">failed</text>
 </g>
 </g>
 </svg>

@@ -81,7 +81,7 @@
 <title>2&#45;&gt;1</title>
 <path fill="none" stroke="blue" d="M171.98,-172.99C178.1,-178.12 184.26,-184.09 189,-190.5 194.4,-197.79 198.76,-206.6 202.13,-214.89"/>
 <polygon fill="blue" stroke="blue" points="198.84,-216.1 205.59,-224.26 205.41,-213.67 198.84,-216.1"/>
-<text xml:space="preserve" text-anchor="middle" x="235.55" y="-194.45" font-family="Times,serif" font-size="14.00" fill="blue">Successed</text>
+<text xml:space="preserve" text-anchor="middle" x="235.55" y="-194.45" font-family="Times,serif" font-size="14.00" fill="blue">succeeded</text>
 </g>
 <!-- 3 -->
 <g id="node5" class="node">
@@ -94,21 +94,21 @@
 <title>2&#45;&gt;3</title>
 <path fill="none" stroke="blue" d="M173.09,-136.23C201.44,-117.48 246.9,-87.4 278.49,-66.5"/>
 <polygon fill="blue" stroke="blue" points="280.14,-69.6 286.55,-61.16 276.28,-63.76 280.14,-69.6"/>
-<text xml:space="preserve" text-anchor="middle" x="246.87" y="-105.2" font-family="Times,serif" font-size="14.00" fill="blue">Failed</text>
+<text xml:space="preserve" text-anchor="middle" x="245.37" y="-105.2" font-family="Times,serif" font-size="14.00" fill="blue">failed</text>
 </g>
 <!-- 4&#45;&gt;3 -->
 <g id="edge7" class="edge">
 <title>4&#45;&gt;3</title>
 <path fill="none" stroke="navy" d="M334.31,-136.08C326.69,-131.51 319.89,-125.76 314.75,-118.5 305.21,-105.03 304.88,-86.55 307,-71.24"/>
 <polygon fill="navy" stroke="navy" points="310.37,-72.24 308.71,-61.78 303.48,-70.99 310.37,-72.24"/>
-<text xml:space="preserve" text-anchor="middle" x="351.88" y="-105.2" font-family="Times,serif" font-size="14.00" fill="navy">Successed</text>
+<text xml:space="preserve" text-anchor="middle" x="351.88" y="-105.2" font-family="Times,serif" font-size="14.00" fill="navy">succeeded</text>
 </g>
 <!-- 4&#45;&gt;3 -->
 <g id="edge8" class="edge">
 <title>4&#45;&gt;3</title>
 <path fill="none" stroke="navy" d="M406.24,-136.34C402.68,-125.54 397.03,-111.71 389,-101.25 378.9,-88.09 365.16,-76.28 352.2,-66.79"/>
 <polygon fill="navy" stroke="navy" points="354.4,-64.06 344.2,-61.17 350.37,-69.79 354.4,-64.06"/>
-<text xml:space="preserve" text-anchor="middle" x="419.95" y="-105.2" font-family="Times,serif" font-size="14.00" fill="navy">Failed</text>
+<text xml:space="preserve" text-anchor="middle" x="418.45" y="-105.2" font-family="Times,serif" font-size="14.00" fill="navy">failed</text>
 </g>
 </g>
 </svg>

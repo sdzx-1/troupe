@@ -1,9 +1,7 @@
 const std = @import("std");
 const troupe = @import("root.zig");
 
-const Mode = troupe.Mode;
-const Method = troupe.Method;
-const Adler32 = std.hash.Adler32;
+
 
 arena: std.heap.ArenaAllocator,
 name: []const u8,

@@ -117,8 +117,8 @@ pub fn MkSendFile(
 
         pub fn CheckHash(A: type, B: type) type {
             return union(enum) {
-                Successed: Data(void, A),
-                Failed: Data(void, B),
+                succeeded: Data(void, A),
+                failed: Data(void, B),
 
                 pub const info = sendfile_info("CheckHash", receiver, &.{sender});
 
@@ -127,19 +127,19 @@ pub fn MkSendFile(
                     const curr_hash = ctx.hasher.final();
                     ctx.hasher = std.hash.XxHash3.init(0);
                     if (curr_hash == ctx.recved_hash) {
-                        std.debug.print("check successed \n", .{});
-                        return .{ .Successed = .{ .data = {} } };
+                        std.debug.print("check succeeded \n", .{});
+                        return .{ .succeeded = .{ .data = {} } };
                     } else {
                         std.debug.print("check failed \n", .{});
-                        return .{ .Failed = .{ .data = {} } };
+                        return .{ .failed = .{ .data = {} } };
                     }
                 }
                 pub fn preprocess_0(parent_ctx: *@field(context, @tagName(sender)), msg: @This()) !void {
                     const ctx = sender_ctxFromParent(parent_ctx);
                     _ = ctx;
                     switch (msg) {
-                        .Failed => {},
-                        .Successed => {},
+                        .failed => {},
+                        .succeeded => {},
                     }
                 }
             };
