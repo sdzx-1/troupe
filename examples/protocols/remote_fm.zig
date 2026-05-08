@@ -16,6 +16,11 @@ pub const ClientContext = struct {
     /// File content pre-loaded for upload (allocated with `allocator`)
     upload_data: []const u8 = "",
     upload_offset: usize = 0,
+
+    /// Command history for up/down arrow navigation
+    history: std.ArrayListUnmanaged([]const u8) = .empty,
+    /// Index into history while browsing; items.len means fresh input
+    history_pos: usize = 0,
 };
 
 pub const ServerContext = struct {
@@ -115,11 +120,17 @@ pub fn MkRemoteFM(
                     try c.stdout_writer.print("fm> ", .{});
                     try c.stdout_writer.flush();
 
-                    const line = (c.stdin_reader.takeDelimiter('\n') catch |err| {
+                    const line = readLine(c) catch |err| {
                         try c.stdout_writer.print("stdin error ({}), exiting\n", .{err});
                         try c.stdout_writer.flush();
+                        for (c.history.items) |entry| c.allocator.free(entry);
+                        c.history.deinit(c.allocator);
                         return .{ .exit = .{ .data = {} } };
-                    }) orelse return .{ .exit = .{ .data = {} } };
+                    } orelse {
+                        for (c.history.items) |entry| c.allocator.free(entry);
+                        c.history.deinit(c.allocator);
+                        return .{ .exit = .{ .data = {} } };
+                    };
 
                     const trimmed = std.mem.trim(u8, line, " \t\r\n");
                     if (trimmed.len == 0) continue;
@@ -129,7 +140,13 @@ pub fn MkRemoteFM(
                     const arg = if (space) |s| std.mem.trim(u8, trimmed[s + 1 ..], " \t") else "";
 
                     if (std.mem.eql(u8, cmd, "exit") or std.mem.eql(u8, cmd, "quit")) {
+                        for (c.history.items) |entry| c.allocator.free(entry);
+                        c.history.deinit(c.allocator);
                         return .{ .exit = .{ .data = {} } };
+                    } else if (std.mem.eql(u8, cmd, "clear") or std.mem.eql(u8, cmd, "cls")) {
+                        try c.stdout_writer.writeAll("\x1b[2J\x1b[H");
+                        try c.stdout_writer.flush();
+                        continue;
                     } else if (std.mem.eql(u8, cmd, "list") or std.mem.eql(u8, cmd, "ls")) {
                         return .{ .list = .{ .data = .{ .path = if (arg.len > 0) arg else "." } } };
                     } else if (std.mem.eql(u8, cmd, "read") or std.mem.eql(u8, cmd, "cat")) {
@@ -175,6 +192,7 @@ pub fn MkRemoteFM(
                             \\  delete|rm <path>           — Delete file
                             \\  stat <path>                — File info
                             \\  mkdir <path>               — Create directory
+                            \\  clear|cls                 — Clear screen
                             \\  exit|quit                  — Disconnect
                             \\  help                       — This message
                             \\
@@ -519,6 +537,127 @@ pub fn MkRemoteFM(
                 }
             }
         };
+
+        // ── Raw terminal line editor ─────────────────────────────
+
+        /// Saves/restores terminal attributes for raw-mode input.
+        const RawTerminal = struct {
+            fd: std.posix.fd_t,
+            orig: std.posix.termios,
+
+            fn enable(fd: std.posix.fd_t) !@This() {
+                const orig = try std.posix.tcgetattr(fd);
+                var raw = orig;
+                raw.lflag.ECHO = false;
+                raw.lflag.ICANON = false;
+                raw.lflag.ISIG = false;
+                raw.lflag.IEXTEN = false;
+                raw.iflag.BRKINT = false;
+                raw.iflag.ICRNL = false;
+                raw.iflag.INPCK = false;
+                raw.iflag.ISTRIP = false;
+                raw.iflag.IXON = false;
+                raw.oflag.OPOST = false;
+                raw.cflag.CSIZE = .CS8;
+                raw.cc[@intFromEnum(std.posix.V.MIN)] = 1;
+                raw.cc[@intFromEnum(std.posix.V.TIME)] = 0;
+                try std.posix.tcsetattr(fd, .FLUSH, raw);
+                return .{ .fd = fd, .orig = orig };
+            }
+
+            fn disable(self: *@This()) void {
+                std.posix.tcsetattr(self.fd, .FLUSH, self.orig) catch {};
+            }
+        };
+
+        /// Read a line from stdin with arrow-key history navigation,
+        /// backspace editing, and echo.  Returns `null` on EOF / Ctrl+C / Ctrl+D.
+        fn readLine(c: *ClientContext) !?[]const u8 {
+            const stdin_fd = std.posix.STDIN_FILENO;
+            var rt = try RawTerminal.enable(stdin_fd);
+            defer rt.disable();
+
+            var line_buf: [4096]u8 = undefined;
+            var pos: usize = 0;
+
+            while (true) {
+                var raw_byte: [1]u8 = undefined;
+                const n = try std.posix.read(stdin_fd, &raw_byte);
+                if (n == 0) return null;
+                const byte = raw_byte[0];
+
+                switch (byte) {
+                    3, 4 => return null, // Ctrl+C / Ctrl+D → cancel
+                    13, 10 => { // Enter
+                        try c.stdout_writer.writeAll("\r\n");
+                        try c.stdout_writer.flush();
+                        const line = line_buf[0..pos];
+                        if (line.len > 0) {
+                            const owned = try c.allocator.dupe(u8, line);
+                            try c.history.append(c.allocator, owned);
+                            c.history_pos = c.history.items.len;
+                        }
+                        return line;
+                    },
+                    127, 8 => { // Backspace
+                        if (pos > 0) {
+                            pos -= 1;
+                            try c.stdout_writer.writeAll("\x08 \x08");
+                            try c.stdout_writer.flush();
+                        }
+                    },
+                    27 => { // ESC prefix – check for arrow keys
+                        var seq: [2]u8 = undefined;
+                        const n1 = try std.posix.read(stdin_fd, &seq);
+                        if (n1 == 2 and seq[0] == '[') {
+                            switch (seq[1]) {
+                                'A' => { // Up arrow
+                                    if (c.history_pos > 0) {
+                                        c.history_pos -= 1;
+                                        while (pos > 0) {
+                                            try c.stdout_writer.writeAll("\x08 \x08");
+                                            pos -= 1;
+                                        }
+                                        const entry = c.history.items[c.history_pos];
+                                        @memcpy(line_buf[0..entry.len], entry);
+                                        pos = entry.len;
+                                        try c.stdout_writer.writeAll(entry);
+                                        try c.stdout_writer.flush();
+                                    }
+                                },
+                                'B' => { // Down arrow
+                                    if (c.history_pos < c.history.items.len) {
+                                        c.history_pos += 1;
+                                        while (pos > 0) {
+                                            try c.stdout_writer.writeAll("\x08 \x08");
+                                            pos -= 1;
+                                        }
+                                        if (c.history_pos < c.history.items.len) {
+                                            const entry = c.history.items[c.history_pos];
+                                            @memcpy(line_buf[0..entry.len], entry);
+                                            pos = entry.len;
+                                            try c.stdout_writer.writeAll(entry);
+                                        }
+                                        try c.stdout_writer.flush();
+                                    }
+                                },
+                                else => {},
+                            }
+                        }
+                    },
+                    // Remaining control chars (0-2, 5-7, 9, 11-12, 14-26, 28-31) are silently ignored
+                    0...2, 5...7, 9, 11, 12, 14...26, 28...31 => {},
+                    else => { // Printable character
+                        if (pos < line_buf.len) {
+                            line_buf[pos] = byte;
+                            pos += 1;
+                            try c.stdout_writer.writeAll(&[_]u8{byte});
+                            try c.stdout_writer.flush();
+                        }
+                    },
+                }
+            }
+        }
 
         fn splitTwo(s: []const u8, delim: u8) [2][]const u8 {
             const idx = std.mem.indexOfScalar(u8, s, delim) orelse return .{ s, "" };
