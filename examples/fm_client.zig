@@ -22,7 +22,38 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
 
-    const address = try net.IpAddress.parse("127.0.0.1", 12345);
+    // ── Parse command-line arguments ───────────────────────────
+    var ip: []const u8 = "127.0.0.1";
+    var port: u16 = 12345;
+
+    {
+        var args_iter = std.process.Args.Iterator.init(init.minimal.args);
+        defer args_iter.deinit();
+        _ = args_iter.next(); // program name
+        while (args_iter.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--ip")) {
+                ip = args_iter.next() orelse {
+                    std.debug.print("error: --ip requires an argument\n", .{});
+                    return;
+                };
+            } else if (std.mem.eql(u8, arg, "--port")) {
+                const port_str = args_iter.next() orelse {
+                    std.debug.print("error: --port requires an argument\n", .{});
+                    return;
+                };
+                port = std.fmt.parseInt(u16, port_str, 10) catch {
+                    std.debug.print("error: invalid port '{s}'\n", .{port_str});
+                    return;
+                };
+            } else {
+                std.debug.print("error: unknown argument '{s}'\n", .{arg});
+                std.debug.print("usage: fm_client [--ip <ip>] [--port <port>]\n", .{});
+                return;
+            }
+        }
+    }
+
+    const address = try net.IpAddress.parse(ip, port);
 
     const socket = try address.connect(io, .{ .mode = .stream });
     defer socket.close(io);

@@ -300,7 +300,8 @@ pub fn MkRemoteFM(
 
         pub const ReadFile = union(enum) {
             chunk: Data([]const u8, @This()),
-            done:  Data(void,       Command),
+            /// done.data == "" → success; non‑empty → error message
+            done:  Data([]const u8, Command),
 
             pub const info = pinfo("ReadFile", server_role, &.{client_role});
 
@@ -312,8 +313,8 @@ pub fn MkRemoteFM(
                 // File.Reader tracks its own logical position and buffered data,
                 // so we keep it alive across process calls to avoid losing bytes.
                 var reader = s.reader orelse blk: {
-                    const f = s.root_dir.openFile(io_, s.pending_path, .{}) catch
-                        return .{ .done = .{ .data = {} } };
+                    const f = s.root_dir.openFile(io_, s.pending_path, .{}) catch |err|
+                        return .{ .done = .{ .data = @errorName(err) } };
                     break :blk f.readerStreaming(io_, &s.read_stream_buf);
                 };
 
@@ -323,13 +324,13 @@ pub fn MkRemoteFM(
                 const n = reader.interface.readSliceShort(&s.read_buf) catch {
                     reader.file.close(io_);
                     s.reader = null;
-                    return .{ .done = .{ .data = {} } };
+                    return .{ .done = .{ .data = "" } };
                 };
 
                 if (n == 0) {
                     reader.file.close(io_);
                     s.reader = null;
-                    return .{ .done = .{ .data = {} } };
+                    return .{ .done = .{ .data = "" } };
                 }
 
                 s.reader = reader;
@@ -340,7 +341,12 @@ pub fn MkRemoteFM(
                 const c = &cctx.*;
                 switch (msg) {
                     .chunk => |v| { try c.stdout_writer.writeAll(v.data); try c.stdout_writer.flush(); },
-                    .done  => {},
+                    .done  => |v| {
+                        if (v.data.len > 0) {
+                            try c.stdout_writer.print("\nRead error: {s}\n", .{v.data});
+                            try c.stdout_writer.flush();
+                        }
+                    },
                 }
             }
         };
@@ -577,8 +583,10 @@ pub fn MkRemoteFM(
             var rt = try RawTerminal.enable(stdin_fd);
             defer rt.disable();
 
-            var line_buf: [4096]u8 = undefined;
+            // Use the context's line_buf (not a local) so the returned slice
+            // remains valid after readLine returns.
             var pos: usize = 0;
+            var line_buf = &c.line_buf;
 
             while (true) {
                 var raw_byte: [1]u8 = undefined;

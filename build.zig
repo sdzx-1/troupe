@@ -40,6 +40,10 @@ pub fn build(b: *std.Build) void {
         const run_cmd = b.addRunArtifact(exe);
         run_step.dependOn(&run_cmd.step);
 
+        if (std.mem.startsWith(u8, info.name, "fm_")) {
+            b.getInstallStep().dependOn(&exe.step);
+        }
+
         if (b.args) |args| {
             run_cmd.addArgs(args);
         }

@@ -22,12 +22,50 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const gpa = init.gpa;
 
-    const address = try net.IpAddress.parse("0.0.0.0", 12345);
+    // ── Parse command-line arguments ───────────────────────────
+    var ip: []const u8 = "0.0.0.0";
+    var port: u16 = 12345;
+    var root_dir = std.Io.Dir.cwd();
+
+    {
+        var args_iter = std.process.Args.Iterator.init(init.minimal.args);
+        defer args_iter.deinit();
+        _ = args_iter.next(); // program name
+        while (args_iter.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--ip")) {
+                ip = args_iter.next() orelse {
+                    std.debug.print("error: --ip requires an argument\n", .{});
+                    return;
+                };
+            } else if (std.mem.eql(u8, arg, "--port")) {
+                const port_str = args_iter.next() orelse {
+                    std.debug.print("error: --port requires an argument\n", .{});
+                    return;
+                };
+                port = std.fmt.parseInt(u16, port_str, 10) catch {
+                    std.debug.print("error: invalid port '{s}'\n", .{port_str});
+                    return;
+                };
+            } else if (std.mem.eql(u8, arg, "--dir")) {
+                const dir_str = args_iter.next() orelse {
+                    std.debug.print("error: --dir requires an argument\n", .{});
+                    return;
+                };
+                root_dir = try root_dir.openDir(io, dir_str, .{});
+            } else {
+                std.debug.print("error: unknown argument '{s}'\n", .{arg});
+                std.debug.print("usage: fm_server [--ip <ip>] [--port <port>] [--dir <path>]\n", .{});
+                return;
+            }
+        }
+    }
+
+    const address = try net.IpAddress.parse(ip, port);
 
     var server = try address.listen(io, .{ .reuse_address = true });
     defer server.deinit(io);
 
-    std.debug.print("Remote FM server listening on 0.0.0.0:12345\n", .{});
+    std.debug.print("Remote FM server listening on {s}:{d}\n", .{ ip, port });
 
     const stream = try server.accept(io);
     defer stream.close(io);
@@ -40,7 +78,7 @@ pub fn main(init: std.process.Init) !void {
     var server_ctx: remote_fm.ServerContext = .{
         .allocator = gpa,
         .io = io,
-        .root_dir = std.Io.Dir.cwd(),
+        .root_dir = root_dir,
     };
 
     Runner.runProtocol(
