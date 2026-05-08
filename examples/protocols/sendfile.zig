@@ -74,7 +74,7 @@ pub fn MkSendFile(
 
                 if (n < ctx.send_buff.len) {
                     ctx.hasher.update(ctx.send_buff[0..n]);
-                    ctx.send_size += ctx.send_buff.len;
+                    ctx.send_size += n;
                     return .{ .final = .{ .data = .{ .str = ctx.send_buff[0..n], .hash = ctx.hasher.final() } } };
                 } else {
                     ctx.hasher.update(&ctx.send_buff);
