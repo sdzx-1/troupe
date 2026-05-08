@@ -207,7 +207,13 @@ pub fn MkRemoteFM(
                         s.pending_path = v.data.path;
                     },
                     .write  => |v| {
-                        s.pending_path = v.data.path;
+                        // Copy the path: WriteFile receives additional messages
+                        // (chunks) before using pending_path, which would
+                        // invalidate the borrow from the original WriteReq
+                        // decoder buffer. The allocation is tracked via
+                        // pending_free and freed on the next command.
+                        s.pending_path = try s.allocator.dupe(u8, v.data.path);
+                        s.pending_free = s.pending_path;
                         s.write_error = false;
                         s.write_file = null;
                     },
@@ -359,8 +365,18 @@ pub fn MkRemoteFM(
                             break :blk f;
                         };
                         if (file) |f| {
-                            var file_writer = f.writer(io_, &s.write_writer_buf);
+                            // Use writerStreaming (OS-level file offset) instead of
+                            // positional writer (tracks pos internally) so that each
+                            // chunk lands at the correct offset even when the writer
+                            // is recreated per chunk.
+                            var file_writer = f.writerStreaming(io_, &s.write_writer_buf);
                             file_writer.interface.writeAll(v.data) catch {
+                                s.write_error = true;
+                            };
+                            // Flush explicitly — writeAll may buffer data in
+                            // write_writer_buf when the chunk fits, and the writer
+                            // goes out of scope before any automatic flush.
+                            file_writer.interface.flush() catch {
                                 s.write_error = true;
                             };
                             s.write_file = file;
