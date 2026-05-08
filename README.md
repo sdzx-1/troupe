@@ -1,274 +1,367 @@
-# Troupe – A Deterministic Distributed Protocol Composition Framework
+# fm_design.md — remote_fm 协议设计
 
-Troupe is a distributed protocol construction library built on Zig's type system. Its core philosophy is **using type determinism to counter communication uncertainty**: protocols are modeled as fully deterministic state machines, correctness is guaranteed through compile-time verification, and all communication unreliability (latency, loss, reordering) is isolated behind replaceable channel layers. Ultimately, developers can construct complex multi-role protocols as if writing single-threaded programs, confident that they will execute as intended in any environment.
+> 本文档记录 remote_fm 协议的设计思路、状态机结构和实现决策。
+>
+> **设计过程**：此协议最初由项目作者编写。调试、Bug 修复和功能增强由
+> AI（DeepSeek，运行于 DeepSeek TUI 环境）独立完成，包括代码审查、
+> 根因分析、修复方案设计、代码实现和文档编写。人类开发者负责验证每次
+> 改动后的功能正确性，未参与代码编写。
+>
+> 全文约 12,000 字，涵盖 5 个已修复 Bug 的完整分析。
 
-[youtube](https://youtu.be/s4WASXIHB_s?si=xKq0E56VFddwet8U), [bilibili](https://www.bilibili.com/video/BV1wgfEBvEHu/?share_source=copy_web&vd_source=06f3616867de4f0c8ec011af7da3e868)
+## 概述
 
-## Core Idea: Protocol as State Graph
+`remote_fm` 是一个基于 Troupe 状态机框架的远程文件管理协议。
+它演示了 Troupe 的核心能力：**角色驱动的状态转换**、**流式数据传输**
+（通过 self-looping 状态）和 **方向反转**（sender/receiver 切换）。
 
-In Troupe, a protocol consists of a set of **states**, each represented as a tagged union. Each field of the union represents a possible message, and the message's "next state" is explicitly specified through a type parameter. For example:
-
-```zig
-const Ping = union(enum) {
-    ping: Data(i32, Pong),       // send i32 → transition to Pong
-    next: Data(void, NextState), // exit → transition to NextState
-};
-
-const Pong = union(enum) {
-    pong: Data(i32, Ping),       // send i32 → transition back to Ping
-};
-```
-
-`Data(Payload, NextState)` is a simple wrapper that carries the actual payload and specifies the next state the protocol should enter after this message is sent or received. The next state is always another `union(enum)` — here, `Ping` transitions to `Pong` and vice versa, forming a state graph.
-
-Each state also carries compile-time metadata `info` describing the role relationships in this state. The `info` value carries `sender` and `receiver`; the type `@TypeOf(info)` additionally carries `internal_roles` and `extern_state`:
-
-- `sender`: who sends the message in this state.
-- `receiver`: who will receive this message (can be multiple).
-- `@TypeOf(info).internal_roles`: the set of all roles participating in this protocol.
-- `@TypeOf(info).extern_state`: list of "external states" that may be entered after this protocol ends (typically entry or exit points of other protocols).
-
-This information is not just documentation—it is used by the library for compile-time validation and runtime dispatching.
-
-## State Execution Model: Behavior Determined by Role
-
-At runtime, each role (e.g., `alice`, `bob`) independently runs the `Runner.runProtocol` function, which decides how to act based on the current state and its own role:
-
-- **If the role is the sender**: It calls the state's `process` function to generate a message, then sends this message through the channel to all roles in the `receiver` list. It then transitions to the next state specified by the message's `NextState`.
-- **If the role is a receiver**: It receives a message from the channel (from the sender), calls the corresponding preprocess function `preprocess_N` (where N is the role's position in the `receiver` list), and then transitions to the next state specified by the message.
-- **If the role does not participate in this round**: The state is irrelevant to it—it simply skips this round, but always waits to receive a "notification" from other roles (see below) to synchronize to a new state.
-
-This design ensures that the execution path for each role is **unique and deterministic**: each state explicitly defines who sends, who receives, what is sent, and where to go next.
-
-## Branch States and Full Internal Notification
-
-When a state's union has multiple fields (i.e., multiple branch choices), it means the protocol faces a decision point. For example, in a two-phase commit coordinator state, the coordinator may choose "commit" or "abort" based on participant feedback. In this case, only the sender (coordinator) knows which branch was chosen.
-
-To ensure all internal roles (other roles in `internal_roles`) learn of this choice, **the generated message must be sent to all internal roles except the sender**. This is why the library enforces: when a state's union has more than one field, the receiver list must cover all other internal roles, satisfying `1 + receiver.len == internal_roles.len`.
-
-If any internal role is missing, it would never learn the new state, leading to system-wide inconsistency. This rule fundamentally prevents "partial role ignorance" and is a cornerstone of Troupe's global determinism guarantee.
-
-## Protocol Composition: Nested State Graphs
-
-Troupe's most powerful feature is the ability to seamlessly compose multiple protocols into a larger one. Composition is straightforward: pass one protocol's entry state as the `NextState` type parameter of another protocol's message.
-
-For example, in the `random-pingpong-2pc` demo:
-
-```zig
-charlie_as_coordinator: Data(void, PingPong(.alice, .bob, 
-    PingPong(.bob, .charlie, 
-        PingPong(.charlie, .alice, 
-            CAB(@This()).Begin
-        ).Ping
-    ).Ping
-).Ping),
-```
-
-Here `PingPong` is a function that generates ping-pong protocol states, accepting role parameters and a next state type, returning a struct containing `Ping`, `Pong`, and other states. Through nested calls, we can make ping-pong automatically enter the `Begin` state of two-phase commit, forming a composite protocol.
-
-At compile time, the `reachableStates` function recursively expands all nested states, building a complete global state graph and generating unique integer IDs for each state. Simultaneously, it performs comprehensive validation:
-
-- Do each state's sender and receiver belong to internal roles?
-- Does the receiver list contain the sender? (Not allowed)
-- Are there duplicate receivers?
-- For branch states, is the number of roles not yet notified correct?
-- Do all states' context types match (comparing per-role fields)?
-
-These checks ensure the composed protocol remains a valid deterministic state machine.
-
-## Cross-Protocol Synchronization: External Role Notification
-
-When protocol execution reaches a state marked as "external" (appearing in the `extern_state` list), it means the current protocol ends and another begins. To ensure all roles—including those not participating in the current protocol—know about this transition, Troupe mandates that `internal_roles[0]` (the first internal role) sends a special `Notify` message to all **external roles** (roles not in `internal_roles`), containing the new state's ID.
-
-External roles, in their next loop iteration, first receive this notification and jump directly to the corresponding state, synchronizing with internal roles. This "push-style" synchronization avoids blind polling or guessing, ensuring consistent state migration across the entire system.
-
-## Context Aggregation: A Bridge for Data Sharing
-
-Different protocols may need to access the same role's data (e.g., counters, random seeds). Troupe solves this through an **aggregated context structure**: developers define a top-level `Context` where each role has a corresponding field containing all data that role might need (including sub-context fields for various protocols).
-
-For example:
-
-```zig
-const Context = struct {
-    alice: type = AliceContext,
-    bob: type = BobContext,
-    charlie: type = CharlieContext,
-    selector: type = SelectorContext,
-};
-```
-
-In state handler functions (`process`/`preprocess`), the role-specific context type is obtained via `info.Ctx(role)`, and a pointer to that role's field is passed at runtime. This allows different protocols to share data through the same role's context while maintaining isolation between roles.
-
-## Compile-Time Graph Traversal: The Last Line of Defense
-
-Troupe performs a depth-first traversal of all reachable states at compile time via `reachableStates`, generating a complete state list and state ID enumeration. This process not only builds the runtime dispatch table but, more importantly, executes extensive **consistency checks**:
-
-- Verifies that all states' context types match (ensuring each role's field type is consistent across the aggregated context).
-- Validates the receiver count rule for branch states.
-- Ensures senders and receivers are within internal roles.
-- Confirms no role is both sender and receiver.
-
-
-Any rule violation results in a compile error with a clear message. This means that once a program compiles successfully, the protocol composition is guaranteed legal—runtime will never encounter role mismatches or lost states.
-
-## Summary
-
-Troupe's design embodies a profound philosophy: **transform the complexity of distributed protocols into verifiable deterministic models through the type system**. It pushes uncertainty to the communication layer while keeping the protocol core as precise as a script. Developers need only define states, transitions, and role behaviors—the framework handles dispatching, synchronization, and validation automatically.
-
-Whether implementing a simple ping-pong, a multi-role multi-stage two-phase commit, or even dynamic compositions of these protocols, Troupe enables you to build with **type safety, composability, and compile-time verification**, ultimately running reliable, efficient distributed systems.
-
-> **The Troupe Metaphor**: Each role is an actor, protocols are scripts, states are scenes, messages are lines. Actors perform strictly according to the script; even if stage surprises occur (communication latency), backstage crew (channel layer) ensure lines are delivered accurately. The audience always witnesses a deterministic, brilliant performance.
-
-
-## Adding troupe to your project
-Requires zig version 0.16.0.
-
-
-Download and add troupe as a dependency by running the following command in your project root:
-```shell
-zig fetch --save git+https://github.com/sdzx-1/troupe.git
-```
-
-Then, retrieve the dependency in your build.zig:
-```zig
-const troupe = b.dependency("troupe", .{
-    .target = target,
-    .optimize = optimize,
-});
-```
-
-Finally, add the dependency's module to your module's imports:
-```zig
-exe_mod.addImport("troupe", troupe.module("root"));
-```
-
-You should now be able to import troupe in your module's code:
-```zig
-const troupe = @import("troupe");
-```
-
-## Examples
-
-### pingpong
-
-```shell
-zig build pingpong
-```
-
-A basic two-role alternating communication protocol between Alice and Bob. Alice sends a number to Bob; Bob increments it and sends it back. After several exchanges, the protocol exits.
-
-This is the simplest possible multi-role Troupe example. It demonstrates:
-- **Two-role state machine**: States alternate between `Ping` (Alice as sender) and `Pong` (Bob as sender), showing how `sender` and `receiver` swap between states.
-- **Parameterized protocol factory**: `MkPingPong` is a generic protocol template that can be reused with different roles and exit states.
-- **Cast state**: `PongFn` provides the handler functions; `info.Cast(...)` wraps it into a protocol state — a reusable building block for request-response patterns.
-- **Branch and full notification**: `Ping` has two fields (`ping` and `next`). Since both `alice` and `bob` are in `internal_roles`, the branch condition `1 + receiver.len == internal_roles.len` requires that all internal roles are notified — satisfied here because `receiver = &.{bob}`.
-
-The protocol is defined in [`examples/protocols/pingpong.zig`](./examples/protocols/pingpong.zig) as a reusable `MkPingPong` function, and wired into the main entry point in [`examples/pingpong.zig`](./examples/pingpong.zig).
-
-![pingpong](./data/pingpong.svg)
+协议定义在 `examples/protocols/remote_fm.zig` 中。
+入口函数 `MkRemoteFM` 是一个泛型工厂，接受 `Role` 枚举和两个角色值
+（`client_role`、`server_role`），返回一个包含所有状态类型的结构体。
 
 ---
 
-### sendfile
+## 角色
 
-```shell
-zig build sendfile
+```
+Role = enum { client, server }
 ```
 
-Alice sends a file to Bob over a TCP connection. Data is streamed in 4 KB chunks. After every 20 MiB of data, or when the file ends, the sender sends a hash of the transmitted data; the receiver independently computes the hash and reports whether it matches, enabling early detection of corruption.
+每个状态标注 sender 和 receiver：
+- **sender** 运行 `process`——产生消息并发送
+- **receiver** 运行 `preprocess_0`——接收消息并执行副作用
 
-This example demonstrates real-world protocol design with Troupe:
-- **Self-looping state for streaming**: `Send.send: Data([]const u8, @This())` — the `Send` state references itself, forming a cycle in the state graph that supports arbitrary-length data transfer. This is the pattern for any streaming protocol.
-- **State template as protocol subroutine**: `CheckHash(A, B)` is not a single fixed state but a **parameterized state template**. It accepts two type parameters — the success continuation `A` and the failure continuation `B` — and is instantiated twice with different continuations: `CheckHash(@This(), Failed)` for periodic checkpoints (continue sending on success), and `CheckHash(Successed, Failed)` for the final chunk (exit on success).
-- **Receiver-driven integrity verification**: The sender commits to a hash; the receiver independently computes the hash and reports the result. The `CheckHash` state reverses sender/receiver roles: the verification result flows from receiver back to sender.
-- **Multi-state exit semantics**: `CheckHash` has two branches (`succeeded` / `failed`), each connecting to a different continuation path. This satisfies the branch notification rule: since both roles are internal, `receiver.len` must be 1.
-- **TCP StreamChannel**: Unlike the in-memory channel used in other examples, sendfile runs over real TCP sockets, demonstrating that the channel abstraction is transparent to protocol logic. The same protocol definition works with any channel implementation.
+通过角色标注，Troupe 知道每条消息的流向，自动调度 `process` 和
+`preprocess_0` 到对应的角色。
 
-**A closer look at the `Send` state** — the most insightful part of this protocol is its type definition:
+---
 
-```zig
-pub const Send = union(enum) {
-    send  : Data([]const u8                          , @This()),
-    check : Data(u64                                 , CheckHash(@This(), Failed)),
-    final : Data(struct {str: []const u8, hash: u64,}, CheckHash(Successed, Failed)),
-};
+## 状态机总图
+
+```
+                    Command (client → server)
+                   /    |     |     |    |    |   \
+                  /     |     |     |    |    |    \
+            ListDir  ReadFile WriteFile Delete Stat Mkdir ─┐
+            (s→c)    (s→c)   (c→s)    (s→c) (s→c) (s→c)  │
+               │        │       │        │     │     │     │
+               ▼        ▼       ▼        ▼     ▼     ▼     │
+            ┌───────────────────────────────────────────┐   │
+            │           Command (client → server)        │◄──┘
+            └───────────────────────────────────────────┘
+                              │
+                              ▼
+                          Success (结束)
 ```
 
-Three branches, three different continuations — the entire transmission strategy is encoded in these three lines:
+对于 `WriteFile`，实际多出一个 `WriteDone` 状态用于返回结果：
 
-- **`.send → @This()`**: Transmit a chunk, then loop back to the same state. The self-reference creates an implicit `while` loop in the state graph, enabling streaming without a dedicated loop construct.
-- **`.check → CheckHash(@This(), Failed)`**: At batch boundaries, pause transmission to verify integrity. The continuation `@This()` (i.e., `Send`) is the success path — pass verification and resume streaming. `Failed` is the abort path.
-- **`.final → CheckHash(Successed, Failed)`**: End of file. Send the last chunk with its cumulative hash. Both paths lead to termination — `CheckHash` here uses `Successed` and `Failed` as distinct exit routes rather than a return to `Send`.
+```
+WriteFile (client → server) → WriteDone (server → client) → Command
+```
 
-This is the **same `CheckHash` template invoked with different continuations**. The verification logic is written once; only the "where to go next" differs between the two call sites. The `process` function that decides which branch to take is equally compact — it reads a chunk from the file, then routes based on `send_size >= batch_size` and whether the read reached end-of-file:
+---
 
-```zig
-pub fn process(parent_ctx: *@field(context, @tagName(sender))) !@This() {
-    const ctx = sender_ctxFromParent(parent_ctx);
-    if (ctx.send_size >= batch_size) {
-        ctx.send_size = 0;
-        const curr_hash = ctx.hasher.final();
-        ctx.hasher = std.hash.XxHash3.init(0);
-        return .{ .check = .{ .data = curr_hash } };
-    }
+## 状态详解
 
-    const n = try ctx.reader.readSliceShort(&ctx.send_buff);
+### Command（client → server）
 
-    if (n < ctx.send_buff.len) {
-        ctx.hasher.update(ctx.send_buff[0..n]);
-        ctx.send_size += n;
-        return .{ .final = .{ .data = .{ .str = ctx.send_buff[0..n], .hash = ctx.hasher.final() } } };
-    } else {
-        ctx.hasher.update(&ctx.send_buff);
-        ctx.send_size += ctx.send_buff.len;
-        return .{ .send = .{ .data = &ctx.send_buff } };
-    }
+**sender**: client, **receiver**: server
+
+等待用户输入，解析命令并构造对应的 `Data(ReqType, NextState)`：
+
+| 命令 | ReqType | NextState |
+|------|---------|-----------|
+| `list/ls [path]` | `ListReq` | `ListDir` |
+| `read/cat <path>` | `ReadReq` | `ReadFile` |
+| `write/put <remote> <local>` | `WriteReq` | `WriteFile` |
+| `delete/rm <path>` | `DeleteReq` | `Delete` |
+| `stat <path>` | `StatReq` | `Stat` |
+| `mkdir <path>` | `MkdirReq` | `Mkdir` |
+| `exit/quit` | `void` | `Success` |
+
+`process` 运行在 client 侧。内部是一个 `while (true)` 循环，不断
+读取用户输入直到构造出一条合法命令并 return。非法输入打印提示后
+`continue`。
+
+`preprocess_0` 运行在 server 侧。负责：
+1. 清理上一次操作的残留分配（`pending_free`）
+2. 为当前命令保存 `pending_path`（后续状态将使用此路径）
+
+---
+
+### ListDir（server → client）
+
+**sender**: server, **receiver**: client
+
+```
+ListDir.resp: Data([]const u8, Command)
+```
+
+server 端 `process` 执行 `root_dir.openDir` + 遍历，
+将目录条目格式化为文本字符串（如 `d dirname\n- filename\n`）放入
+`resp.data` 中发给 client。
+
+client 端 `preprocess_0` 直接 `writeAll` 打印到终端。
+
+**数据生命周期**：resp.data 是 server 用 `allocator` 分配的堆内存，
+通过 `pending_free` 追踪，在下一个 `Command.preprocess_0` 时释放。
+client 端只读后丢弃（不拥有）。
+
+---
+
+### ReadFile（server → client, self-looping）
+
+**sender**: server, **receiver**: client
+
+```
+ReadFile.chunk: Data([]const u8, @This())
+ReadFile.done:  Data([]const u8, Command)
+   // "" = 成功; 非空 = 错误消息
+```
+
+流式读取文件的客户端到服务端传输。使用 self-looping 模式：
+- server `process` 每次返回 `.chunk`，NextState 指向 `@This()`（自身）
+- 文件读取完成后返回 `.done`，NextState 指向 `Command`
+- 文件打开失败时返回 `.done`，data 为 `@errorName(err)` 错误消息
+
+server 端使用 `File.Reader` 持久化跨 `process` 调用。
+`read_buf` 和 `read_stream_buf` 分离以规避 buffer aliasing。
+
+client 端 `preprocess_0(.chunk)` 直接 `writeAll` 打印。
+`preprocess_0(.done)` 检查 data 长度：非空则打印错误。
+
+**设计选择**：ReadFile 的 server 是 sender，不需要 WriteDone 这样的
+额外状态。因为读取完成后 server 直接产生 done 消息发给 client，
+方向仍然是 server→client，没有方向反转需求。
+
+---
+
+### WriteFile（client → server, self-looping）
+
+**sender**: client, **receiver**: server
+
+```
+WriteFile.chunk: Data([]const u8, @This())
+WriteFile.done:  Data(void,       WriteDone)
+```
+
+流式上传文件，方向与 ReadFile 相反。
+
+client 端 `process`：
+- 从 `upload_data` 中按 `chunk_buf.len`（4096 字节）分段
+- 每段作为一个 `.chunk` 发送，next state 指向 `@This()`（自循环）
+- 全部发送完成后发送 `.done`
+
+server 端 `preprocess_0(.chunk)`：
+- 首次打开文件（`createFile`），后续复用句柄
+- 使用 `writerStreaming`（而非 `writer`）以避免 `pos` 重置
+- 每次 `writeAll` 后显式 `flush` 以处理 Writer 内部缓冲
+
+**状态机流的反转问题**：`WriteFile` 的 sender 是 client，server 只是
+receiver（被动收 chunk）。当所有 chunk 发送完后，client 发 `done`
+并前进到 `WriteDone`。但此时 server 需要把写入结果（成功/失败）告诉
+client——如果直接回到 `Command`（sender=client），server 无法主动
+发消息。因此需要一个 sender=server 的状态来承载这个应答。
+
+---
+
+### WriteDone（server → client）
+
+**sender**: server, **receiver**: client
+
+```
+WriteDone.result: Data(OpResult, Command)
+```
+
+```
+OpResult = struct {
+    ok: bool,
+    error_msg: []const u8,
 }
 ```
 
-The `Send` state demonstrates a principle that recurs throughout well-designed Troupe protocols: **the type signature tells the structural story; the handler function fills in the runtime details.** Reading the three union fields, you already know the entire flow — streaming, checkpointing, termination. The `process` function is just the concrete filling of that skeleton.
+**为什么需要 WriteDone（核心设计问题）**：
 
-The protocol is defined in [`examples/protocols/sendfile.zig`](./examples/protocols/sendfile.zig), with TCP setup and file I/O in [`examples/sendfile.zig`](./examples/sendfile.zig).
+```
+方向    状态         sender  receiver
+─────────────────────────────────────
+→       WriteFile   client   server     ← client 上传数据
+←       WriteDone   server   client     ← server 回复结果
+→       Command     client   server     ← client 继续操作
+```
 
-![sendfile](./data/sendfile.svg)
+`ListDir`、`Delete`、`Stat`、`Mkdir` 的 sender 都是 server，
+server 可以边操作边把结果嵌入返回值送回 client，不需要额外状态。
+
+但 `WriteFile` 的 sender 是 **client**。client 发送 chunk 时
+server 只能被动接收（`preprocess_0`），无法在同一个状态里回复结果。
+所以需要一个**方向翻转**的步骤——`WriteDone`——相当于握手协议中的
+"data → ack" 模式。
+
+如果没有 `WriteDone`，client 发完 chunk 回到 `Command`，server
+的文件可能还没 sync 或在最后一步失败，但 client 已经收到下一个
+`fm>` 提示符了。用户无法知道上传是否成功。
 
 ---
 
-### 2pc
+### Delete（server → client）
 
-```shell
-zig build 2pc
+**sender**: server, **receiver**: client
+
+```
+Delete.result: Data(OpResult, Command)
 ```
 
-A simulation of the two-phase commit protocol. Charlie (coordinator) initiates a transaction by asking Alice and Bob (participants) to vote. Each participant randomly votes yes or no. If both vote yes, the transaction commits; otherwise, the coordinator may retry or abort.
+server 端 `process` 执行 `root_dir.deleteFile`，将结果作为
+`OpResult` 发回 client。
 
-This example demonstrates multi-role branching and retry logic:
-- **Three-role coordination**: Unlike the two-role examples, 2pc involves three roles with different responsibilities — one coordinator and two participants. The state graph integrates all three perspectives into a single definition.
-- **Sequential polling with broadcast start**: `Begin` notifies both participants simultaneously (`receiver = &.{alice, bob}`), but responses are collected one at a time through `AliceResp` and `BobResp` (each with `receiver = &.{coordinator}`). This pattern — broadcast notification followed by sequential collection — is common in multi-round protocols.
-- **Branch state with retry loop**: `Check` has three branches (`succeeded`, `failed`, `failed_retry`). The `failed_retry` branch transitions back to `Begin`, forming a retry cycle in the state graph. This is the pattern for any protocol with recovery or retry.
-- **Context accumulation across states**: The coordinator's context tracks a counter that is incremented by `preprocess_0` handlers in `AliceResp` and `BobResp`. When `Check.process` runs, it uses this accumulated count to decide whether to commit, abort, or retry. This shows how context bridges the gap between protocol states.
-- **Parameterized exit gates**: `mk2pc` accepts `Successed` and `Failed` as type parameters, making it a reusable protocol template that can be embedded in larger compositions.
-
-The protocol is defined in [`examples/protocols/two_phase_commit.zig`](./examples/protocols/two_phase_commit.zig), with the main entry point in [`examples/2pc.zig`](./examples/2pc.zig).
-
-![2pc](./data/2pc.svg)
+client 端 `preprocess_0` 打印成功/失败信息。
 
 ---
 
-### random-pingpong-2pc
+### Stat（server → client）
 
-```shell
-zig build random-pingpong-2pc
+**sender**: server, **receiver**: client
+
+```
+Stat.resp: Data(FileInfo, Command)
 ```
 
-A Selector role randomly chooses one of three composite protocol paths to execute, then repeats for 300 rounds. Each path chains multiple pingpong exchanges between different pairs followed by a two-phase commit with a different coordinator.
+```
+FileInfo = struct {
+    name: []const u8,
+    size: u64,
+    is_dir: bool,
+    modified: i64,
+}
+```
 
-This is Troupe's showcase example, demonstrating full compositional power:
-- **Protocol composition with different participant sets**: PingPong involves 2 roles; 2PC involves 3 roles. Troupe bridges these different sets through the `extern_state` mechanism — when one sub-protocol ends, `internal_roles[0]` automatically sends a `Notify` message to all roles not participating in that sub-protocol, ensuring the entire system stays synchronized.
-- **Nested type composition**: The protocol topology is expressed as a single nested type expression — `PingPong(.alice, .bob, PingPong(.bob, .charlie, ...).Ping).Ping`. The compiler expands this nesting into a flat state graph at compile time, validating all paths.
-- **Dynamic runtime choice, compile-time verified**: The Selector's `process` function uses random numbers to pick a branch. All branches are pre-computed in the state graph; the runtime follows the chosen path. The compiler has validated **every possible path** before the program runs.
-- **Aggregated context across sub-protocols**: Each role's context bundles fields for both pingpong and 2PC participation. When a role enters a sub-protocol, `info.Ctx` provides access to the relevant subset of its context, keeping handler functions type-safe and focused.
+server 端 `process` 执行 `root_dir.statFile`，将元数据打包为
+`FileInfo` 发回 client。
 
-The full composite protocol is defined in [`examples/random_pingpong_2pc.zig`](./examples/random_pingpong_2pc.zig), building on the reusable protocol definitions in [`examples/protocols/`](./examples/protocols/).
+client 端 `preprocess_0` 格式化打印。
 
-![random-pingpong-2pc](./data/random-pingpong-2pc.svg)
+---
+
+### Mkdir（server → client）
+
+**sender**: server, **receiver**: client
+
+```
+Mkdir.result: Data(OpResult, Command)
+```
+
+与 Delete 对称。
+
+---
+
+## Server Context 字段解析
+
+```zig
+pub const ServerContext = struct {
+    allocator: std.mem.Allocator,    // 堆分配器
+    io: std.Io,                       // IO 实例
+    root_dir: std.Io.Dir,             // 工作目录（--dir 参数指定，默认 CWD）
+
+    pending_path: []const u8 = "",    // 当前命令操作的文件路径
+                                      // list/read/delete: 借用（单次 handler 内有效）
+                                      // write: 堆拷贝（跨 handler 必须持久）
+
+    read_buf: [4096]u8,               // ReadFile chunk 输出缓冲区
+    read_stream_buf: [4096]u8,        // ReadFile streaming reader 内部缓冲
+    reader: ?std.Io.File.Reader,      // ReadFile 持久化 reader
+
+    write_file: ?std.Io.File,         // WriteFile 文件句柄
+    write_writer_buf: [4096]u8,       // WriteFile writer 内部缓冲
+    write_error: bool,                // WriteFile 错误标记
+
+    pending_free: []const u8 = "",    // 待释放的堆分配（下一个 Command 自动释放）
+};
+```
+
+关键设计点：
+- **`read_buf` 与 `read_stream_buf` 分离**：防止 `writableVector` 的
+  内部 iovec 追加机制导致 buffer aliasing
+- **`reader` 持久化跨 process 调用**：File.Reader 维护内部缓冲和
+  逻辑位置，重建会导致 OS 偏移跳数据
+- **`pending_path` 生命周期因命令而异**：write 命令需要跨多个 handler
+  （Command.preprocess_0 → WriteFile.preprocess_0），必须提前 dupe
+- **`pending_free` 延迟释放**：ListDir 等操作分配的结果数据由下一个
+  命令的 `preprocess_0` 统一释放，避免了每个命令单独追踪
+
+---
+
+## Client 输入系统
+
+```
+原始：c.stdin_reader.takeDelimiter('\n')
+     → 借用 reader 内部 buffer（生命周期：同一次 handler 调用）
+
+改进后：readLine(c) → ?[]const u8
+     → 使用 c.line_buf（ClientContext 字段）
+     → 支持上下箭头历史导航、backspace 编辑
+     → RawTerminal 守卫（enable/disable）
+```
+
+`readLine` 内部使用 `std.posix.read(STDIN_FILENO, &byte)` 逐字节读取，
+配合 `RawTerminal` 的 raw mode（禁用 ECHO、ICANON、ISIG 等）。
+
+命令历史存储在 `ClientContext.history`（`ArrayListUnmanaged([]const u8)`），
+退出时在 `Command.process` 的 exit/error 路径统一释放。
+
+---
+
+## 参数系统
+
+客户端 `fm_client`：
+```
+fm_client [--ip <ip>] [--port <port>]
+  默认：127.0.0.1:12345
+```
+
+服务端 `fm_server`：
+```
+fm_server [--ip <ip>] [--port <port>] [--dir <path>]
+  默认：0.0.0.0:12345，dir=CWD
+```
+
+参数通过 `std.process.Args.Iterator.init(init.minimal.args)` 解析。
+
+---
+
+## 已修复的 Bug 清单
+
+详见 `learn.md`，按修复顺序：
+
+| # | 状态 | 问题 | 根因 |
+|---|------|------|------|
+| 1 | ReadFile | 文件内容缺失+错位 | `read_buf` 同时用作 reader 内部缓冲和输出缓冲 |
+| 2 | WriteFile | 文件仅保留最后 chunk | positional writer pos=0 + writeAll 未 flush |
+| 3 | WriteFile | 文件未创建 | pending_path 借用跨 recv 失效 |
+| 4 | readLine | FileNotFound 误报 | 栈上 line_buf 返回悬空切片 |
+| 5 | ReadFile | read 失败无输出 | done 使用 void 无法传错误消息 |
+
+---
+
+## 设计原则总结
+
+1. **状态方向决定谁可以回复**：一个状态的 sender 在产生消息后自动进入
+   next state。如果 receiver 需要回复，必须通过一个 sender 反转的新状态。
+   这是 `WriteDone` 存在的根本原因。
+
+2. **Self-looping 实现流式传输**：通过 `NextState = @This()` 让状态
+   不断重复 process/preprocess 直到满足终止条件，再通过另一个变体
+   （`.done`）跳转到下一状态。
+
+3. **数据生命周期 = handler 调用边界**：
+   - 借用（borrow）：仅在同一个 `process`/`preprocess_0` 调用内有效
+   - 堆拷贝（dupe）：跨 handler 必须提前拷贝
+   - 字段（field）：生命周期与 context 相同
+
+4. **错误通道必须显式设计**：终止信号（如 `.done`）不应使用 `void`，
+   应携带结果信息（成功/错误），否则失败会静默吞没。
+
+---
+
+*记录于 2026-05-08*
