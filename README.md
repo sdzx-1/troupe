@@ -192,7 +192,7 @@ The protocol is defined in [`examples/protocols/pingpong.zig`](./examples/protoc
 zig build sendfile
 ```
 
-Alice sends a file to Bob over a TCP connection. Data is streamed in 1 MB chunks. After every 20 MB of data, or when the file ends, the sender sends a hash of the transmitted data; the receiver independently computes the hash and reports whether it matches, enabling early detection of corruption.
+Alice sends a file to Bob over a TCP connection. Data is streamed in 4 KB chunks. After every 20 MB of data, or when the file ends, the sender sends a hash of the transmitted data; the receiver independently computes the hash and reports whether it matches, enabling early detection of corruption.
 
 This example demonstrates real-world protocol design with Troupe:
 - **Self-looping state for streaming**: `Send.send: Data([]const u8, @This())` — the `Send` state references itself, forming a cycle in the state graph that supports arbitrary-length data transfer. This is the pattern for any streaming protocol.
@@ -228,14 +228,16 @@ pub fn process(parent_ctx: *@field(context, @tagName(sender))) !@This() {
         ctx.hasher = std.hash.XxHash3.init(0);
         return .{ .check = .{ .data = curr_hash } };
     }
+
     const n = try ctx.reader.readSliceShort(&ctx.send_buff);
+
     if (n < ctx.send_buff.len) {
-        // end of file — final chunk with hash
-        ...
+        ctx.hasher.update(ctx.send_buff[0..n]);
+        ctx.send_size += ctx.send_buff.len;
         return .{ .final = .{ .data = .{ .str = ctx.send_buff[0..n], .hash = ctx.hasher.final() } } };
     } else {
-        // normal chunk — keep streaming
-        ...
+        ctx.hasher.update(&ctx.send_buff);
+        ctx.send_size += ctx.send_buff.len;
         return .{ .send = .{ .data = &ctx.send_buff } };
     }
 }
