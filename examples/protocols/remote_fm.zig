@@ -27,8 +27,10 @@ pub const ServerContext = struct {
     pending_path: []const u8 = "",
 
     read_buf: [4096]u8 = undefined,
-    /// File handle for ongoing read operation
-    read_file: ?std.Io.File = null,
+    /// Internal buffer for the streaming reader (separate from read_buf to avoid aliasing)
+    read_stream_buf: [4096]u8 = undefined,
+    /// Persistent streaming reader for ReadFile; maintains OS offset + internal buffering across process calls
+    reader: ?std.Io.File.Reader = null,
 
     write_file: ?std.Io.File = null,
     write_writer_buf: [4096]u8 = undefined,
@@ -196,7 +198,14 @@ pub fn MkRemoteFM(
 
                 switch (msg) {
                     .list   => |v| s.pending_path = v.data.path,
-                    .read   => |v| s.pending_path = v.data.path,
+                    .read   => |v| {
+                        // Clean up any lingering reader from a previous ReadFile
+                        if (s.reader) |*r| {
+                            r.file.close(r.io);
+                        }
+                        s.reader = null;
+                        s.pending_path = v.data.path;
+                    },
                     .write  => |v| {
                         s.pending_path = v.data.path;
                         s.write_error = false;
@@ -275,31 +284,31 @@ pub fn MkRemoteFM(
                 const s = &sctx.*;
                 const io_ = s.io;
 
-                // On first call, open the file. Store the handle so subsequent
-                // calls can reuse it; the OS-level file offset advances naturally.
-                const file = s.read_file orelse blk: {
+                // Obtain or create the persistent streaming reader.
+                // File.Reader tracks its own logical position and buffered data,
+                // so we keep it alive across process calls to avoid losing bytes.
+                var reader = s.reader orelse blk: {
                     const f = s.root_dir.openFile(io_, s.pending_path, .{}) catch
                         return .{ .done = .{ .data = {} } };
-                    break :blk f;
+                    break :blk f.readerStreaming(io_, &s.read_stream_buf);
                 };
 
-                // Use streaming reader — reads at the OS file offset, not at r.pos.
-                // This way we can create a fresh reader each call without resetting
-                // the read position.
-                var streaming = file.readerStreaming(io_, &s.read_buf);
-                const n = streaming.interface.readSliceShort(&s.read_buf) catch {
-                    file.close(io_);
-                    s.read_file = null;
+                // Use read_buf as the output buffer — distinct from read_stream_buf
+                // which the File.Reader owns. This avoids the aliasing bug where
+                // writableVector appends r.buffer as an extra iovec, corrupting data.
+                const n = reader.interface.readSliceShort(&s.read_buf) catch {
+                    reader.file.close(io_);
+                    s.reader = null;
                     return .{ .done = .{ .data = {} } };
                 };
 
                 if (n == 0) {
-                    file.close(io_);
-                    s.read_file = null;
+                    reader.file.close(io_);
+                    s.reader = null;
                     return .{ .done = .{ .data = {} } };
                 }
 
-                s.read_file = file;
+                s.reader = reader;
                 return .{ .chunk = .{ .data = s.read_buf[0..n] } };
             }
 
