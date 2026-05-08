@@ -298,6 +298,165 @@ null），每次都失败并设置 `write_error = true`。最后 `WriteDone.proc
 
 ---
 
+## 4. readLine: 栈上缓冲区导致返回后悬空指针
+
+### 症状
+
+`write` 命令报 `Cannot open local file: error.FileNotFound`，即使文件确实存在。
+`read`、`list` 等所有命令也可能出现偶发的路径/参数解析错误。
+
+### 根因分析过程
+
+`readLine` 函数是后期添加的 raw-mode 行编辑器：
+
+```zig
+fn readLine(c: *ClientContext) !?[]const u8 {
+    const stdin_fd = std.posix.STDIN_FILENO;
+    var rt = try RawTerminal.enable(stdin_fd);
+    defer rt.disable();
+
+    var line_buf: [4096]u8 = undefined;   // ← 栈上分配
+    var pos: usize = 0;
+
+    // ... 收集字符到 line_buf ...
+
+    const line = line_buf[0..pos];
+    return line;                           // ← 返回指向栈的切片
+}
+```
+
+**问题**：`line_buf` 是 `readLine` 的局部变量，在栈上分配。当函数返回时，
+栈帧弹出，`line_buf` 占用的内存不再有效。但返回的切片 `line_buf[0..pos]`
+仍然指向这块已释放的栈内存。
+
+调用方 `Command.process` 立即使用这个悬空指针：
+
+```zig
+const line = readLine(c) catch ...;
+const trimmed = std.mem.trim(u8, line, " \t\r\n");
+// trimmed 指向已释放的栈内存，此时可能还未被覆写，
+// 所以命令解析通常"碰巧正确"。
+
+// ... 随着后续函数调用，栈被反复使用和覆写 ...
+const local_file = cwd.openFile(c.io, parts[1], .{}) catch |err| {
+    // parts[1] 是从 trimmed 派生的子切片，
+    // 此时栈内存已被覆写，内容随机
+    // → FileNotFound ✓
+};
+```
+
+**为什么错误表现为 FileNotFound 而非崩溃？**
+
+C 和 Zig 的栈内存被释放后不会立即清零或被保护。在 `readLine` 返回后
+`Command.process` 的 `while` 循环体中的其他函数调用会复用这片栈空间。
+随着代码逐步深入到 `openFile` 调用链，栈被多轮函数调用覆写，
+`parts[1]` 指向的内容随时间推移逐渐变成垃圾。最终 `openFile` 收到的
+路径是无效字符串，操作系统返回 `ENOENT`。
+
+这种 bug 的特征：
+- 在简单/短路径下可能"碰巧正确"（栈覆写得慢或未触及那片区域）
+- 在复杂操作（如 write 需要多步处理）时稳定复现
+- 调试困难，因为打印日志本身也会改变栈布局（Heisenbug）
+
+**和原始代码的对比**：
+
+原始代码使用 `c.stdin_reader.takeDelimiter('\n')`，返回的切片指向
+reader 的内部 buffer（即 `c.line_buf`，ClientContext 的字段），
+位于堆/全局内存中，不会因函数返回而失效。
+
+引入 `readLine` 时保留了局部 buffer 的写法，未注意到返回值的生命周期
+从"借用 reader 内部 buffer"变成了"借用栈内存"。
+
+### 修复
+
+```zig
+fn readLine(c: *ClientContext) !?[]const u8 {
+    // ...
+    var pos: usize = 0;
+    var line_buf = &c.line_buf;   // 指向上下文字段，而非栈局部变量
+    // ...
+}
+```
+
+使用 `c.line_buf`（`ClientContext` 的字段，生命周期与上下文相同）
+替代局部 `[4096]u8`。返回的切片指向持久内存，调用方可以安全使用。
+
+### 学到的东西
+
+- **Zig 不阻止返回栈切片**：Zig 没有借用检查器（如 Rust 的 lifetime），
+  返回局部变量的切片是合法语法，编译器不会报错。这需要开发者自己追踪
+  返回值的生命周期。
+
+- **栈覆写的时间窗口**：悬空指针不一定立即崩溃。从函数返回到悬空内存被
+  覆写之间存在时间窗口。简单操作（如比较字符串）可能碰巧正确，复杂操作
+  （如系统调用、多层函数调用）更容易触发覆写。
+
+- **区分"借用返回"和"拥有返回"**：
+  - 借用返回（如 `reader.takeDelimiter`）：数据在调用者的 buffer 中，
+    返回的切片受调用者生命周期约束
+  - 拥有返回（如 `allocator.dupe`）：数据在堆上，调用者负责释放
+  - 当把借用返回替换为自定义实现时，必须确保新实现的生命周期兼容
+
+---
+
+## 5. ReadFile: 静默失败，无错误信息
+
+### 症状
+
+`read` 不存在的文件时，客户端没有任何输出，安静地回到 `fm>` 提示符。
+
+### 根因分析过程
+
+`ReadFile.process` 服务端代码在 `openFile` 失败时：
+
+```zig
+const f = s.root_dir.openFile(io_, s.pending_path, .{}) catch
+    return .{ .done = .{ .data = {} } };   // void，无法传错误
+```
+
+`ReadFile` 的 `done` 变体使用 `Data(void, Command)`，只能表示"完成"，
+无法区分成功和失败。客户端 `preprocess_0(.done)` 为空操作 `{}`，
+即使收到 done 也不会产生任何输出。
+
+### 修复
+
+将 `ReadFile.done` 从 `Data(void, Command)` 改为 `Data([]const u8, Command)`：
+
+```zig
+pub const ReadFile = union(enum) {
+    chunk: Data([]const u8, @This()),
+    /// done.data == "" → success; non‑empty → error message
+    done:  Data([]const u8, Command),
+};
+```
+
+服务端：
+- 成功 → `return .{ .done = .{ .data = "" } };`
+- 失败 → `return .{ .done = .{ .data = @errorName(err) } };`
+
+客户端：
+```zig
+.done => |v| {
+    if (v.data.len > 0) {
+        try c.stdout_writer.print("\nRead error: {s}\n", .{v.data});
+        try c.stdout_writer.flush();
+    }
+},
+```
+
+### 学到的东西
+
+- **协议设计中的错误通道**：流式协议（chunk → done）必须在设计之初就
+  考虑错误路径。使用 `void` 作为终止信号意味着"成功"，但错误无法传达。
+  简单的改进是让终止信号携带结果信息（空串=成功，非空=错误），或者
+  显式添加 `error` 变体。
+
+- **状态机状态与业务语义的映射**：Troupe 的每个状态是一个 union，
+  每个变体是一次状态转换。当某个变体只能表达"发生"而不能表达"结果"时，
+  考虑用丰富的数据类型（`[]const u8`、`OpResult` 等）携带结果信息。
+
+---
+
 ## 总结
 
 | Bug | 症状 | 根因分类 | 修复策略 |
@@ -305,16 +464,28 @@ null），每次都失败并设置 `write_error = true`。最后 `WriteDone.proc
 | ReadFile aliasing | 文件内容缺失+错位 | Buffer 别名违规 | 分离缓冲区，持久化 reader |
 | WriteFile position | 文件仅最后 chunk | writer 模式选择错误 + 缓存未刷 | writerStreaming + 显式 flush |
 | WriteFile lifetime | 文件未创建 | 借用生命周期 | dupe 路径 |
+| readLine use-after-return | FileNotFound 误报 | 栈切片生命周期 | 使用上下文字段替代局部 buffer |
+| ReadFile silent fail | read 失败无输出 | 协议缺少错误通道 | done 携带 `[]const u8` 错误消息 |
 
-**三条教训**：
+**五条教训**：
 
 1. **Buffer aliasing** — 标准库函数对参数独立性的隐含约束需要在文档中
    特别留意。传同一块内存到两个参数时检查实现是否会内部混用。
+
 2. **Writer 不是 RAII** — Zig 结构体没有析构函数。Writer 的缓存数据不会
    在离开作用域时自动刷出。必须显式管理 `flush`/`deinit`。
+
 3. **借用生命周期跨 handler 无效** — Troupe 的消息数据借用在同一个
    protocol handler 调用内有效，跨 `recv` 后会失效。
    需要跨 `preprocess_0` → 后续 `recv` → 后续 handler 的数据必须提前拷贝。
+
+4. **Zig 不阻止返回栈切片** — 返回局部变量的切片是有效语法，编译器不报错。
+   开发者需要对返回值的生命周期负责。替换一个"借用返回"函数时，新实现
+   的生命周期必须与原实现兼容。
+
+5. **协议的错误通道必须显式设计** — 流式协议使用 `void` 终止信号意味着
+   "成功"，错误⽆法传达。终止信号应携带结果信息（空串/非空串），或显式
+   添加错误变体。
 
 ---
 
