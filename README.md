@@ -64,15 +64,15 @@ WriteFile (client → server) → WriteDone (server → client) → Command
 | `delete/rm <path>` | `DeleteReq` | `Delete` |
 | `stat <path>` | `StatReq` | `Stat` |
 | `mkdir <path>` | `MkdirReq` | `Mkdir` |
-| `exit/quit` | `void` | `Success` |
+| `exit/quit` | `void` | `Cleanup` |
 
 `process` 运行在 client 侧。内部是一个 `while (true)` 循环，不断
 读取用户输入直到构造出一条合法命令并 return。非法输入打印提示后
 `continue`。
 
 `preprocess_0` 运行在 server 侧。负责：
-1. 清理上一次操作的残留分配（`pending_free`）
-2. 为当前命令保存 `pending_path`（后续状态将使用此路径）
+1. 释放上一次命令的 `pending_path`（`?[]const u8`，统一复制）
+2. 为当前命令 `dupe` 保存 `pending_path`
 
 ---
 
@@ -90,9 +90,10 @@ server 端 `process` 执行 `root_dir.openDir` + 遍历，
 
 client 端 `preprocess_0` 直接 `writeAll` 打印到终端。
 
-**数据生命周期**：resp.data 是 server 用 `allocator` 分配的堆内存，
-通过 `pending_free` 追踪，在下一个 `Command.preprocess_0` 时释放。
-client 端只读后丢弃（不拥有）。
+**数据生命周期**：resp.data 借用自 `ServerContext.listing`
+（`ArrayListUnmanaged(u8)`，Context 字段），存于 context 中不需要
+跨函数释放。下一个 `ListDir.process` 调用 `clearRetainingCapacity()`
+清空并复用容量。client 端只读后丢弃（不拥有）。
 
 ---
 
@@ -250,19 +251,17 @@ pub const ServerContext = struct {
     io: std.Io,                       // IO 实例
     root_dir: std.Io.Dir,             // 工作目录（--dir 参数指定，默认 CWD）
 
-    pending_path: []const u8 = "",    // 当前命令操作的文件路径
-                                      // list/read/delete: 借用（单次 handler 内有效）
-                                      // write: 堆拷贝（跨 handler 必须持久）
+    pending_path: ?[]const u8 = null, // 当前路径（统一 dupe，preprocess_0 入口释放）
 
     read_buf: [4096]u8,               // ReadFile chunk 输出缓冲区
     read_stream_buf: [4096]u8,        // ReadFile streaming reader 内部缓冲
     reader: ?std.Io.File.Reader,      // ReadFile 持久化 reader
 
-    write_file: ?std.Io.File,         // WriteFile 文件句柄
+    write_file: ?std.Io.File = null,  // WriteFile 文件句柄
     write_writer_buf: [4096]u8,       // WriteFile writer 内部缓冲
     write_error: bool,                // WriteFile 错误标记
 
-    pending_free: []const u8 = "",    // 待释放的堆分配（下一个 Command 自动释放）
+    listing: std.ArrayListUnmanaged(u8) = .empty,  // ListDir 响应缓冲
 };
 ```
 
@@ -271,10 +270,11 @@ pub const ServerContext = struct {
   内部 iovec 追加机制导致 buffer aliasing
 - **`reader` 持久化跨 process 调用**：File.Reader 维护内部缓冲和
   逻辑位置，重建会导致 OS 偏移跳数据
-- **`pending_path` 生命周期因命令而异**：write 命令需要跨多个 handler
-  （Command.preprocess_0 → WriteFile.preprocess_0），必须提前 dupe
-- **`pending_free` 延迟释放**：ListDir 等操作分配的结果数据由下一个
-  命令的 `preprocess_0` 统一释放，避免了每个命令单独追踪
+- **`pending_path` 统一复制**：所有命令都通过 `dupe` 复制路径，
+  在 `preprocess_0` 入口释放，没有例外。使用 `?[]const u8` 区分
+  "有/无待释放"
+- **`listing` 代替跨函数释放**：ListDir 响应数据存于 Context 字段中，
+  `resp.data` 返回借用，无需堆分配追踪
 
 ---
 
@@ -294,7 +294,7 @@ pub const ServerContext = struct {
 配合 `RawTerminal` 的 raw mode（禁用 ECHO、ICANON、ISIG 等）。
 
 命令历史存储在 `ClientContext.history`（`ArrayListUnmanaged([]const u8)`），
-退出时在 `Command.process` 的 exit/error 路径统一释放。
+退出时由 `Cleanup.process` 统一释放。
 
 ---
 
@@ -327,6 +327,9 @@ fm_server [--ip <ip>] [--port <port>] [--dir <path>]
 | 3 | WriteFile | 文件未创建 | pending_path 借用跨 recv 失效 |
 | 4 | readLine | FileNotFound 误报 | 栈上 line_buf 返回悬空切片 |
 | 5 | ReadFile | read 失败无输出 | done 使用 void 无法传错误消息 |
+| 6 | ServerContext | 服务端首次 preprocess_0 segfault | `?T` 默认值未正确施加 + 跨函数所有权 |
+| 7 | Cleanup | exit 后双释放/泄漏 | 清理散落三处 + ArrayListUnmanaged.deinit = undefined |
+| 8 | delete | 不能删除文件夹 | 使用 `deleteFile` 而非 `deleteTree` |
 
 ---
 
@@ -343,10 +346,16 @@ fm_server [--ip <ip>] [--port <port>] [--dir <path>]
 3. **数据生命周期 = handler 调用边界**：
    - 借用（borrow）：仅在同一个 `process`/`preprocess_0` 调用内有效
    - 堆拷贝（dupe）：跨 handler 必须提前拷贝
-   - 字段（field）：生命周期与 context 相同
+   - 字段（field）：生命周期与 context 相同，优先使用
 
 4. **错误通道必须显式设计**：终止信号（如 `.done`）不应使用 `void`，
    应携带结果信息（成功/错误），否则失败会静默吞没。
+
+5. **协议可充当 finally 块**：`Cleanup` 状态确保协议退出时资源统一清理，
+   不需依赖 caller 手动释放。
+
+6. **单向状态 + Mux 实现双向异步**：对双方随时可发消息的场景，
+   拆分为两个单向并发协议 + 通道复用层，而非用轮询交替模拟。
 
 ---
 
