@@ -461,7 +461,7 @@ pub fn MkRemoteFM(
                 const s = &sctx.*;
                 const io_ = s.io;
 
-                s.root_dir.deleteFile(io_, s.pending_path) catch |err|
+                s.root_dir.deleteTree(io_, s.pending_path) catch |err|
                     return .{ .result = .{ .data = .{ .ok = false, .error_msg = @errorName(err) } } };
                 return .{ .result = .{ .data = .{ .ok = true, .error_msg = "" } } };
             }
