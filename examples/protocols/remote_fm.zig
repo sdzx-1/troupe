@@ -28,8 +28,9 @@ pub const ServerContext = struct {
     io: std.Io,
     root_dir: std.Io.Dir,
 
-    /// The path that the current command operates on
-    pending_path: []const u8 = "",
+    /// The path that the current command operates on (owned allocation).
+    /// Freed at the start of the next preprocess_0 before overwriting.
+    pending_path: ?[]const u8 = null,
 
     read_buf: [4096]u8 = undefined,
     /// Internal buffer for the streaming reader (separate from read_buf to avoid aliasing)
@@ -41,8 +42,9 @@ pub const ServerContext = struct {
     write_writer_buf: [4096]u8 = undefined,
     write_error: bool = false,
 
-    /// Tracks heap-allocated memory from the last response, freed on next command
-    pending_free: []const u8 = "",
+    /// Reusable buffer for ListDir response, lives in context so resp.data
+    /// can borrow it without a cross-function ownership chain
+    listing: std.ArrayListUnmanaged(u8) = .empty,
 };
 
 /// Remote File Manager protocol factory.
@@ -56,7 +58,7 @@ pub const ServerContext = struct {
 ///   ├── delete{path}  → Delete   (server→client: result)
 ///   ├── stat {path}   → Stat     (server→client: metadata)
 ///   ├── mkdir{path}   → Mkdir    (server→client: result)
-///   └── exit          → {Success}
+///   └── exit          → Cleanup → {Success}
 ///
 /// ReadFile uses self-looping (chunk → @This()) to demonstrate
 /// Troupe's streaming pattern via the type system.
@@ -110,7 +112,7 @@ pub fn MkRemoteFM(
             delete: Data(DeleteReq, Delete),
             stat:   Data(StatReq,   Stat),
             mkdir:  Data(MkdirReq,  Mkdir),
-            exit:   Data(void,      Success),
+            exit:   Data(void,      Cleanup),
 
             pub const info = pinfo("Command", client_role, &.{server_role});
 
@@ -123,12 +125,8 @@ pub fn MkRemoteFM(
                     const line = readLine(c) catch |err| {
                         try c.stdout_writer.print("stdin error ({}), exiting\n", .{err});
                         try c.stdout_writer.flush();
-                        for (c.history.items) |entry| c.allocator.free(entry);
-                        c.history.deinit(c.allocator);
                         return .{ .exit = .{ .data = {} } };
                     } orelse {
-                        for (c.history.items) |entry| c.allocator.free(entry);
-                        c.history.deinit(c.allocator);
                         return .{ .exit = .{ .data = {} } };
                     };
 
@@ -140,8 +138,6 @@ pub fn MkRemoteFM(
                     const arg = if (space) |s| std.mem.trim(u8, trimmed[s + 1 ..], " \t") else "";
 
                     if (std.mem.eql(u8, cmd, "exit") or std.mem.eql(u8, cmd, "quit")) {
-                        for (c.history.items) |entry| c.allocator.free(entry);
-                        c.history.deinit(c.allocator);
                         return .{ .exit = .{ .data = {} } };
                     } else if (std.mem.eql(u8, cmd, "clear") or std.mem.eql(u8, cmd, "cls")) {
                         try c.stdout_writer.writeAll("\x1b[2J\x1b[H");
@@ -208,36 +204,24 @@ pub fn MkRemoteFM(
             pub fn preprocess_0(sctx: *info.Ctx(server_role), msg: @This()) !void {
                 const s = &sctx.*;
 
-                // Free any pending allocation before processing a new command
-                if (s.pending_free.len > 0) {
-                    s.allocator.free(s.pending_free);
-                    s.pending_free = "";
-                }
+                // Free owned allocation from the previous command.
+                if (s.pending_path) |p| s.allocator.free(p);
 
                 switch (msg) {
-                    .list   => |v| s.pending_path = v.data.path,
+                    .list   => |v| s.pending_path = try s.allocator.dupe(u8, v.data.path),
                     .read   => |v| {
-                        // Clean up any lingering reader from a previous ReadFile
-                        if (s.reader) |*r| {
-                            r.file.close(r.io);
-                        }
+                        if (s.reader) |*r| r.file.close(r.io);
                         s.reader = null;
-                        s.pending_path = v.data.path;
+                        s.pending_path = try s.allocator.dupe(u8, v.data.path);
                     },
                     .write  => |v| {
-                        // Copy the path: WriteFile receives additional messages
-                        // (chunks) before using pending_path, which would
-                        // invalidate the borrow from the original WriteReq
-                        // decoder buffer. The allocation is tracked via
-                        // pending_free and freed on the next command.
                         s.pending_path = try s.allocator.dupe(u8, v.data.path);
-                        s.pending_free = s.pending_path;
                         s.write_error = false;
                         s.write_file = null;
                     },
-                    .delete => |v| s.pending_path = v.data.path,
-                    .stat   => |v| s.pending_path = v.data.path,
-                    .mkdir  => |v| s.pending_path = v.data.path,
+                    .delete => |v| s.pending_path = try s.allocator.dupe(u8, v.data.path),
+                    .stat   => |v| s.pending_path = try s.allocator.dupe(u8, v.data.path),
+                    .mkdir  => |v| s.pending_path = try s.allocator.dupe(u8, v.data.path),
                     .exit   => {},
                 }
             }
@@ -255,20 +239,18 @@ pub fn MkRemoteFM(
                 const gpa = s.allocator;
                 const io_ = s.io;
 
-                // Free any previous allocation before allocating new one
-                if (s.pending_free.len > 0) {
-                    gpa.free(s.pending_free);
-                    s.pending_free = "";
-                }
+                // Use the context's listing buffer (no cross-function ownership).
+                s.listing.clearRetainingCapacity();
 
-                var listing: std.ArrayList(u8) = .empty;
-                defer listing.deinit(gpa);
+                const owned_path = s.pending_path orelse unreachable;
+                defer s.allocator.free(owned_path);
+                s.pending_path = null;
 
-                const dir = s.root_dir.openDir(io_, s.pending_path, .{ .iterate = true }) catch |err| {
-                    try listing.appendSlice(gpa, try std.fmt.allocPrint(gpa, "Error: {}\n", .{err}));
-                    const owned = try listing.toOwnedSlice(gpa);
-                    s.pending_free = owned;
-                    return .{ .resp = .{ .data = owned } };
+                const dir = s.root_dir.openDir(io_, owned_path, .{ .iterate = true }) catch |err| {
+                    const line = try std.fmt.allocPrint(gpa, "Error: {}\n", .{err});
+                    defer gpa.free(line);
+                    try s.listing.appendSlice(gpa, line);
+                    return .{ .resp = .{ .data = s.listing.items } };
                 };
                 defer dir.close(io_);
 
@@ -276,12 +258,10 @@ pub fn MkRemoteFM(
                 while (try iter.next(io_)) |entry| {
                     const kind: u8 = if (entry.kind == .directory) 'd' else '-';
                     const line = try std.fmt.allocPrint(gpa, "{c} {s}\n", .{ kind, entry.name });
-                    try listing.appendSlice(gpa, line);
-                    gpa.free(line);
+                    defer gpa.free(line);
+                    try s.listing.appendSlice(gpa, line);
                 }
-                const owned = try listing.toOwnedSlice(gpa);
-                s.pending_free = owned;
-                return .{ .resp = .{ .data = owned } };
+                return .{ .resp = .{ .data = s.listing.items } };
             }
 
             pub fn preprocess_0(cctx: *info.Ctx(client_role), msg: @This()) !void {
@@ -313,7 +293,7 @@ pub fn MkRemoteFM(
                 // File.Reader tracks its own logical position and buffered data,
                 // so we keep it alive across process calls to avoid losing bytes.
                 var reader = s.reader orelse blk: {
-                    const f = s.root_dir.openFile(io_, s.pending_path, .{}) catch |err|
+                    const f = s.root_dir.openFile(io_, s.pending_path orelse unreachable, .{}) catch |err|
                         return .{ .done = .{ .data = @errorName(err) } };
                     break :blk f.readerStreaming(io_, &s.read_stream_buf);
                 };
@@ -382,7 +362,7 @@ pub fn MkRemoteFM(
                 switch (msg) {
                     .chunk => |v| {
                         const file = s.write_file orelse blk: {
-                            const f = s.root_dir.createFile(io_, s.pending_path, .{}) catch {
+                            const f = s.root_dir.createFile(io_, s.pending_path orelse unreachable, .{}) catch {
                                 s.write_error = true;
                                 break :blk null;
                             };
@@ -429,7 +409,7 @@ pub fn MkRemoteFM(
                 }
 
                 if (s.write_error) {
-                    s.root_dir.deleteFile(io_, s.pending_path) catch {};
+                    if (s.pending_path) |p| s.root_dir.deleteFile(io_, p) catch {};
                     return .{ .result = .{ .data = .{ .ok = false, .error_msg = "write failed" } } };
                 }
                 return .{ .result = .{ .data = .{ .ok = true, .error_msg = "" } } };
@@ -461,7 +441,8 @@ pub fn MkRemoteFM(
                 const s = &sctx.*;
                 const io_ = s.io;
 
-                s.root_dir.deleteTree(io_, s.pending_path) catch |err|
+                const d_path = s.pending_path orelse unreachable;
+                s.root_dir.deleteTree(io_, d_path) catch |err|
                     return .{ .result = .{ .data = .{ .ok = false, .error_msg = @errorName(err) } } };
                 return .{ .result = .{ .data = .{ .ok = true, .error_msg = "" } } };
             }
@@ -492,12 +473,13 @@ pub fn MkRemoteFM(
                 const s = &sctx.*;
                 const io_ = s.io;
 
-                const st = s.root_dir.statFile(io_, s.pending_path, .{}) catch
-                    return .{ .resp = .{ .data = .{ .name = s.pending_path, .size = 0, .is_dir = false, .modified = 0 } } };
+                const st_path = s.pending_path orelse unreachable;
+                const st = s.root_dir.statFile(io_, st_path, .{}) catch
+                    return .{ .resp = .{ .data = .{ .name = st_path, .size = 0, .is_dir = false, .modified = 0 } } };
 
                 const is_dir = (st.kind == .directory);
 
-                return .{ .resp = .{ .data = .{ .name = s.pending_path, .size = st.size, .is_dir = is_dir, .modified = @intCast(st.mtime.nanoseconds) } } };
+                return .{ .resp = .{ .data = .{ .name = st_path, .size = st.size, .is_dir = is_dir, .modified = @intCast(st.mtime.nanoseconds) } } };
             }
 
             pub fn preprocess_0(cctx: *info.Ctx(client_role), msg: @This()) !void {
@@ -524,7 +506,8 @@ pub fn MkRemoteFM(
                 const s = &sctx.*;
                 const io_ = s.io;
 
-                s.root_dir.createDir(io_, s.pending_path, .default_dir) catch |err|
+                const mk_path = s.pending_path orelse unreachable;
+                s.root_dir.createDir(io_, mk_path, .default_dir) catch |err|
                     return .{ .result = .{ .data = .{ .ok = false, .error_msg = @errorName(err) } } };
                 return .{ .result = .{ .data = .{ .ok = true, .error_msg = "" } } };
             }
@@ -540,6 +523,43 @@ pub fn MkRemoteFM(
                         }
                         try c.stdout_writer.flush();
                     },
+                }
+            }
+        };
+
+        // ── Cleanup (client → server, automatic on exit) ──────
+
+        pub const Cleanup = union(enum) {
+            done: Data(void, Success),
+
+            pub const info = pinfo("Cleanup", client_role, &.{server_role});
+
+            pub fn process(cctx: *info.Ctx(client_role)) !@This() {
+                const c = &cctx.*;
+                // Client-side cleanup
+                for (c.history.items) |entry| c.allocator.free(entry);
+                c.history.deinit(c.allocator);
+                if (c.upload_data.len > 0) {
+                    c.allocator.free(c.upload_data);
+                    c.upload_data = "";
+                }
+                return .{ .done = .{ .data = {} } };
+            }
+
+            pub fn preprocess_0(sctx: *info.Ctx(server_role), msg: @This()) !void {
+                _ = msg;
+                const s = &sctx.*;
+                // Server-side cleanup
+                if (s.pending_path) |p| s.allocator.free(p);
+                s.listing.deinit(s.allocator);
+                if (s.reader) |*r| {
+                    r.file.close(s.io);
+                    s.reader = null;
+                }
+                if (s.write_file) |f| {
+                    f.sync(s.io) catch {};
+                    f.close(s.io);
+                    s.write_file = null;
                 }
             }
         };

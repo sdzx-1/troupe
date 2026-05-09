@@ -94,8 +94,5 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("Disconnected: {}\n", .{err});
     };
 
-    // Free any leftover upload data
-    if (client_ctx.upload_data.len > 0) {
-        gpa.free(client_ctx.upload_data);
-    }
+    // Cleanup handled by Cleanup.process inside the protocol.
 }

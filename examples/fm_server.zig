@@ -97,8 +97,5 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("Connection closed: {}\n", .{err});
     };
 
-    // Final cleanup: free any pending allocation
-    if (server_ctx.pending_free.len > 0) {
-        gpa.free(server_ctx.pending_free);
-    }
+    // Cleanup handled by Cleanup.preprocess_0 inside the protocol.
 }
