@@ -457,6 +457,186 @@ pub const ReadFile = union(enum) {
 
 ---
 
+## 6. pending_path 统一复制与 ?[]const u8
+
+### 症状
+
+服务端首次 `preprocess_0` 时 `s.pending_resp` free 野指针 → segfault。
+
+### 根因分析
+
+最初设计是混合的：部分命令（list/read/delete/stat/mkdir）从 recv buffer
+借用 `pending_path`，只有 write 用 `dupe` 复制。借用的生命周期依赖于
+ sender/receiver 时序——sender 侧的 `process` 在 `preprocess_0` 之后
+立即执行，中间没有 `recv`，buffer 有效。receiver 侧（write）跨 `recv`
+所以必须复制。
+
+这种"看情况"的设计隐藏着一条隐式规则：**sender 侧可借用，receiver 侧必须拥有**。
+每次加新命令都得判断自己是 sender 还是 receiver。
+
+后来改为**统一复制**——所有命令都用 `dupe`，并引入 `pending_free` 跟踪。
+再后来将 `pending_path` 改为 `?[]const u8 = null`，在 `preprocess_0` 入口
+统一释放旧值。
+
+但引入了 `pending_resp` 字段来跟踪 ListDir 的响应分配，它的默认值 `null`
+在 struct 初始化时**未被正确施加**，导致首次 `preprocess_0` 中
+`free(pending_resp)` 释放野指针 → segfault。
+
+### 修复
+
+移除 `pending_resp`，将 ListDir 的响应数据存入 `ServerContext.listing`
+（`ArrayListUnmanaged(u8)`，Context 字段），`resp.data = s.listing.items`
+是对 Context 的借用，不需要跨函数释放。下一个 `ListDir.process` 开头
+`clearRetainingCapacity()` 复用容量。
+
+### 学到的东西
+
+- **?T 的默认值可能不会被正确施加**： struct 字段级默认值在某些上下文中
+  可能不生效。特别是 `?[]const u8 = null` —— 如果初始化路径不完整，
+  字段中的 `Optional` 的 tag 位可能随机。显式初始化为 `null` 永远安全。
+
+- **避免跨函数所有权**： 如果数据只要存活到被序列化发送，且序列化发生在
+  `process` 返回之后，那么数据必须在 `process` 返回后继续存活。
+  这导致"process 分配、下个 preprocess_0 释放"的跨函数链。
+  更好的做法：数据存在 Context 字段中，`process` 返回它的借用。
+  Context 的生命周期 ≡ 连接生命周期，无需额外管理。
+
+- **`ArrayListUnmanaged.deinit` 设置 `self.* = undefined`**：
+  Zig 的 `ArrayListUnmanaged.deinit` 释放 backing buffer 后不会将
+  `items` 置空，而是设为 `undefined`。这意味着 deinit 后读取 `items` 是
+  **未定义行为**，可能导致 GPF。如果需要 deinit 后安全使用，必须手动
+  重新赋值 `.empty`。
+
+---
+
+## 7. 协议内的 Cleanup 状态
+
+### 症状
+
+清理代码散落在 `fm_client.zig`、`fm_server.zig` 和 `Command.process` 中，
+且 exit 路径和 error 路径各有不同的清理覆盖范围——exit 路径清理了但
+error 路径没有，导致内存泄漏或双释放。
+
+### 根因分析
+
+资源清理（history、upload_data、pending_path、listing、reader、write_file）
+本应统一在协议结束时执行，但被分布在三个位置：
+
+1. `Command.process` 的 exit/error 分支 — 清理 history
+2. `fm_client.zig` 的 `runProtocol` 之后 — 清理 history + upload_data
+3. `fm_server.zig` 的 `runProtocol` 之后 — 清理 pending_path + listing
+
+这种分布式的清理难以验证完整性。当 `runProtocol` 通过 error 退出时（如
+socket 断开），`Command.process` 内部的清理代码根本没有机会执行，
+泄漏检测器就会报告 `dupe` 分配的泄漏。
+
+### 修复
+
+添加 `Cleanup` 状态，作为 `exit` 后的必经状态：
+
+```zig
+pub const Cleanup = union(enum) {
+    done: Data(void, Success),
+    pub fn process(cctx) !@This() {
+        // free history, upload_data
+    }
+    pub fn preprocess_0(sctx, msg) !void {
+        // free pending_path, listing, close reader/write_file
+    }
+};
+```
+
+Cleanup 是协议的一部分——无论干净 exit 还是 stdin error 导致的 exit，
+都会经过它。手动清理代码从 `fm_client.zig` 和 `fm_server.zig` 中移除。
+
+### 学到的东西
+
+- **Troupe 状态机是天然的"finally"块**： 每个协议退出必经 Cleanup 状态。
+  与其在协议外靠 caller 手动清理，不如在协议内加一个清理状态。
+- **框架不承诺异常安全**： `runProtocol` 内部的 error 传播会跳过中间
+  状态的清理代码。Cleanup 是状态机的一部分，即使从中间状态 error 退出，
+  只要 runner 能走到 Cleanup 状态，清理就会执行。
+
+---
+
+## 8. 聊天协议：并发双协议 vs 轮询交替
+
+### 问题
+
+聊天需要 client 和 server 互不等待地发消息——client 随时打字，server
+随时推送。Troupe 的每状态单一 sender 模型无法直接描述这种双向异步通信。
+
+### 尝试过的方案
+
+1. **交替轮询**（ChatSend → ChatRecv → ChatSend → ...）：
+   client 如需发消息，必须等待 ChatSend→ChatRecv→ChatSend 一次来回。
+   每条消息最少 2 次网络往返，延迟大，且接收消息需要主动 poll。
+
+2. **方向反转状态**（WriteDone 模式）：
+   对单次操作有效（上传→确认），但对持续的双向流无效——每次反转只有
+   one message。
+
+3. **并发双协议 + Mux**（最终方案）：
+   两个独立的 Troupe 协议在同一个 TCP 连接上并行运行，由 `MuxStream`
+   层做消息分路：
+
+   ```
+   TCP Reader → Demux Fiber ─→ Mvar[tag=1] → ClientPush.recv
+                             ─→ Mvar[tag=2] → ServerPush.recv
+
+   ClientPush.send → [tag:4][len:4][codec_data] → TCP Writer
+   ServerPush.send → [tag:4][len:4][codec_data] → TCP Writer
+   ```
+
+   每个协议是纯单向的（client→server 或 server→client），互不阻塞。
+
+### 学到的东西
+
+- **Troupe 不适合直接描述双向异步流**： 单一 sender 模型要求每次通信
+  明确指定谁发谁收。双方可随时发消息的场景需要一个**通道复用层**
+  来模拟并发。
+- **协议拆分为单向子协议**： 将"双向随时通信"拆成两个"单向恒通信"，
+  各管各的方向，通过底层多路复用共享连接。Mux 层处理 tag 分路，
+  双方各跑两个 Runner 实例。
+- **`@fieldParentPtr` 不可复制**： `Io.Reader` 和 `Io.Writer` 是
+  通过 `@fieldParentPtr` 从嵌入的 `Io.Reader` 指针恢复外层 struct 的。
+  复制 `Io.Reader` 值（`var r = mux.reader.*`）会破坏这个指针关系，
+  导致访问非法内存。必须始终使用原始指针。
+
+---
+
+## 9. 设计模式总结
+
+### pending_path 生命周期演化
+
+| 阶段 | pending_path 类型 | 分配策略 | 释放机制 | 评价 |
+|------|------------------|----------|----------|------|
+| 原始 | `[]const u8 = ""` | 借用 | 不释放 | 依赖时序，脆弱 |
+| 混合 | `[]const u8 = ""` | write dupe，其余借用 | pending_free | 规则隐晦 |
+| 统一复制 | `[]const u8 = ""` | 全部 dupe | pending_free | pending_free 双字段冗余 |
+| 最终 | `?[]const u8 = null` | 全部 dupe | preprocess_0 入口 free | 单一表达，显式 null |
+
+### 资源清理演化
+
+| 阶段 | 清理方式 | 问题 |
+|------|----------|------|
+| 外部清理 | `fm_*.zig` 手动 free | 散落三处，error 路径遗漏 |
+| 分散清理 | Command.process + fm_*.zig | 双释放（deinit → undefined） |
+| 协议内清理 | Cleanup 状态 | 统一，自动，不论 exit 还是 error |
+
+### 跨函数所有权
+
+| 方案 | 数据存储 | process 返回 | 释放 | 示例 |
+|------|----------|-------------|------|------|
+| process 分配，下个 handler 释放 | 堆 | `return .{ .data = owned }` | 下个 preprocess_0 | 初期 pending_free |
+| Context 字段 | Context | `return .{ .data = &ctx.field }` | 无需释放 | listing |
+| 避免 | 堆，process 末尾释放 | 空借用 | 无 | 无 |
+
+核心原则：**数据应活在生命周期最接近其使用范围的地方**。跨函数的所有权
+传递是最难验证正确的模式。
+
+---
+
 ## 总结
 
 | Bug | 症状 | 根因分类 | 修复策略 |
@@ -466,8 +646,11 @@ pub const ReadFile = union(enum) {
 | WriteFile lifetime | 文件未创建 | 借用生命周期 | dupe 路径 |
 | readLine use-after-return | FileNotFound 误报 | 栈切片生命周期 | 使用上下文字段替代局部 buffer |
 | ReadFile silent fail | read 失败无输出 | 协议缺少错误通道 | done 携带 `[]const u8` 错误消息 |
+| pending_resp segfault | 服务端首次 preprocess_0 崩溃 | `?T` 默认值未正确施加 + 跨函数所有权 | Context 字段替代堆分配，统一 `?[]const u8 null` |
+| 分布式清理 | exit 后双释放/泄漏 | Cleanup 散落三处 + ArrayListUnmanaged.deinit = undefined | 协议内 Cleanup 状态 |
+| 聊天双向通信 | 无法用单一 sender 模型描述 | Troupe 每状态单 sender | 并发双协议 + MuxStream 分路 |
 
-**五条教训**：
+**八条教训**：
 
 1. **Buffer aliasing** — 标准库函数对参数独立性的隐含约束需要在文档中
    特别留意。传同一块内存到两个参数时检查实现是否会内部混用。
@@ -486,6 +669,19 @@ pub const ReadFile = union(enum) {
 5. **协议的错误通道必须显式设计** — 流式协议使用 `void` 终止信号意味着
    "成功"，错误⽆法传达。终止信号应携带结果信息（空串/非空串），或显式
    添加错误变体。
+
+6. **`?T` 默认值可能不被施加** — struct 字段的 `?[]const u8 = null` 默认值
+   在某些初始化路径下可能未生效。依赖默认值的 Optional 类型字段应显式赋
+   值 `null`，特别是在分离编译的模块边界。
+
+7. **`ArrayListUnmanaged.deinit` 遗留 `undefined`** — deinit 不会将
+   `items` 置空，读取 deinit 后的 items 是 UB。
+   如需 deinit 后安全读取，手动赋值 `= .empty`。
+
+8. **跨函数所有权是最脆弱的模式** — process 分配、下个 handler 释放隐藏着
+   生命周期假设，容易遗忘或弄错。数据存在 Context 字段中返回借用更安全。
+   Troupe 状态机可以充当"finally 块"——Cleanup 状态确保协议退出时资源
+   统一清理。
 
 ---
 
