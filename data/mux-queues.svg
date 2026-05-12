@@ -1,0 +1,156 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" font-family="SF Mono, Menlo, monospace" font-size="13">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#555"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22c55e"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6"/>
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="450" y="30" text-anchor="middle" font-size="16" font-weight="bold" fill="#111">queues: 2D Slot 矩阵</text>
+  <text x="450" y="50" text-anchor="middle" font-size="12" fill="#666">queues[proto_id][receiver_role_index] → *Slot</text>
+
+  <!-- ============================================ -->
+  <!-- Left side: TCP Reader -->
+  <!-- ============================================ -->
+
+  <!-- TCP -->
+  <rect x="20" y="90" width="160" height="40" rx="4" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <text x="100" y="115" text-anchor="middle" font-size="13" fill="#334155">TCP 字节流</text>
+
+  <!-- Reader thread -->
+  <rect x="20" y="160" width="160" height="36" rx="4" fill="#1e293b" stroke="#0f172a" stroke-width="2"/>
+  <text x="100" y="183" text-anchor="middle" font-size="12" fill="#e2e8f0" font-weight="bold">Reader 线程</text>
+
+  <!-- Arrow: TCP → Reader -->
+  <line x1="100" y1="130" x2="100" y2="156" stroke="#555" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Read frame label -->
+  <text x="100" y="150" text-anchor="middle" font-size="11" fill="#888">read_frame()</text>
+
+  <!-- ============================================ -->
+  <!-- The 2D queues matrix -->
+  <!-- ============================================ -->
+
+  <!-- Box around the whole matrix -->
+  <rect x="240" y="80" width="420" height="460" rx="8" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="450" y="102" text-anchor="middle" font-size="12" fill="#64748b" font-weight="bold">queues[proto_id][role_index]</text>
+
+  <!-- Column headers: roles -->
+  <text x="320" y="130" text-anchor="middle" font-size="11" fill="#334155" font-weight="bold">alice (idx 0)</text>
+  <text x="470" y="130" text-anchor="middle" font-size="11" fill="#334155" font-weight="bold">bob (idx 1)</text>
+
+  <!-- Row labels: proto_id -->
+  <text x="265" y="190" text-anchor="middle" font-size="11" fill="#334155" font-weight="bold">proto 0</text>
+  <text x="265" y="310" text-anchor="middle" font-size="11" fill="#334155" font-weight="bold">proto 1</text>
+
+  <!-- ===================== -->
+  <!-- proto 0, alice -->
+  <!-- ===================== -->
+  <rect x="290" y="155" width="60" height="60" rx="4" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="320" y="175" text-anchor="middle" font-size="10" fill="#166534" font-weight="bold">Slot</text>
+  <text x="320" y="190" text-anchor="middle" font-size="10" fill="#166534">[0][0]</text>
+  <text x="320" y="205" text-anchor="middle" font-size="9" fill="#4ade80">(empty)</text>
+
+  <!-- ===================== -->
+  <!-- proto 0, bob -->
+  <!-- ===================== -->
+  <rect x="440" y="155" width="60" height="60" rx="4" fill="#dcfce7" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="470" y="175" text-anchor="middle" font-size="10" fill="#166534" font-weight="bold">Slot</text>
+  <text x="470" y="190" text-anchor="middle" font-size="10" fill="#166534">[0][1]</text>
+  <!-- Show current data -->
+  <text x="470" y="206" text-anchor="middle" font-size="9" fill="#166534">⏳ num: 3</text>
+
+  <!-- Arrow: Reader → proto0/bob (put counter frame) -->
+  <path d="M 180 178 L 280 185" fill="none" stroke="#22c55e" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arrow-green)"/>
+  <text x="230" y="166" text-anchor="start" font-size="9" fill="#22c55e">proto=0</text>
+  <text x="230" y="178" text-anchor="start" font-size="9" fill="#22c55e">receiver=bob</text>
+  <text x="230" y="190" text-anchor="start" font-size="9" fill="#22c55e">payload=num:3</text>
+
+  <!-- ===================== -->
+  <!-- proto 1, alice -->
+  <!-- ===================== -->
+  <rect x="290" y="275" width="60" height="60" rx="4" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="320" y="295" text-anchor="middle" font-size="10" fill="#1e3a8f" font-weight="bold">Slot</text>
+  <text x="320" y="310" text-anchor="middle" font-size="10" fill="#1e3a8f">[1][0]</text>
+  <text x="320" y="325" text-anchor="middle" font-size="9" fill="#93c5fd">(empty)</text>
+
+  <!-- ===================== -->
+  <!-- proto 1, bob -->
+  <!-- ===================== -->
+  <rect x="440" y="275" width="60" height="60" rx="4" fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
+  <text x="470" y="295" text-anchor="middle" font-size="10" fill="#1e3a8f" font-weight="bold">Slot</text>
+  <text x="470" y="310" text-anchor="middle" font-size="10" fill="#1e3a8f">[1][1]</text>
+  <text x="470" y="326" text-anchor="middle" font-size="9" fill="#1e3a8f">⏳ ping: 2</text>
+
+  <!-- Arrow: Reader → proto1/bob (put ping frame) -->
+  <path d="M 180 186 L 280 305" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arrow-blue)"/>
+  <text x="190" y="262" text-anchor="start" font-size="9" fill="#3b82f6">proto=1</text>
+  <text x="190" y="274" text-anchor="start" font-size="9" fill="#3b82f6">receiver=bob</text>
+  <text x="190" y="286" text-anchor="start" font-size="9" fill="#3b82f6">payload=ping:2</text>
+
+  <!-- ============================================ -->
+  <!-- Right side: Runner threads consuming from slots -->
+  <!-- ============================================ -->
+
+  <text x="740" y="130" text-anchor="middle" font-size="12" fill="#334155" font-weight="bold">消费端</text>
+
+  <!-- proto 0 runner (bob) -->
+  <rect x="670" y="160" width="200" height="36" rx="4" fill="#166534" stroke="#14532d" stroke-width="2"/>
+  <text x="770" y="183" text-anchor="middle" font-size="12" fill="#e2e8f0" font-weight="bold">Runner 0 (bob)</text>
+
+  <!-- Arrow: Slot[0][1] → Runner 0 -->
+  <line x1="500" y1="185" x2="666" y2="183" stroke="#22c55e" stroke-width="2" marker-end="url(#arrow-green)"/>
+  <text x="580" y="176" text-anchor="middle" font-size="10" fill="#22c55e">recv() → CounterProto</text>
+
+  <!-- proto 1 runner (bob) -->
+  <rect x="670" y="280" width="200" height="36" rx="4" fill="#1e3a8f" stroke="#172554" stroke-width="2"/>
+  <text x="770" y="303" text-anchor="middle" font-size="12" fill="#e2e8f0" font-weight="bold">Runner 1 (bob)</text>
+
+  <!-- Arrow: Slot[1][1] → Runner 1 -->
+  <line x1="500" y1="305" x2="666" y2="303" stroke="#3b82f6" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="580" y="296" text-anchor="middle" font-size="10" fill="#3b82f6">recv() → PingProto</text>
+
+  <!-- ============================================ -->
+  <!-- Bottom: Alice send side -->
+  <!-- ============================================ -->
+
+  <rect x="20" y="420" width="640" height="100" rx="6" fill="#fefce8" stroke="#eab308" stroke-width="1.5"/>
+  <text x="340" y="442" text-anchor="middle" font-size="12" fill="#92400e" font-weight="bold">发送侧（Alice）</text>
+
+  <!-- Runner 0 alice -->
+  <rect x="50" y="455" width="150" height="36" rx="4" fill="#854d0e" stroke="#713f12" stroke-width="2"/>
+  <text x="125" y="478" text-anchor="middle" font-size="12" fill="#fef3c7" font-weight="bold">Runner 0 (alice)</text>
+
+  <!-- Runner 1 alice -->
+  <rect x="50" y="505" width="150" height="36" rx="4" fill="#854d0e" stroke="#713f12" stroke-width="2"/>
+  <text x="125" y="528" text-anchor="middle" font-size="12" fill="#fef3c7" font-weight="bold">Runner 1 (alice)</text>
+
+  <!-- send 0 → Mux -->
+  <path d="M 200 473 L 320 473" fill="none" stroke="#ca8a04" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="260" y="468" text-anchor="middle" font-size="10" fill="#ca8a04">send(proto=0, .num:3)</text>
+
+  <!-- send 1 → Mux -->
+  <path d="M 200 523 L 320 523" fill="none" stroke="#ca8a04" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="260" y="518" text-anchor="middle" font-size="10" fill="#ca8a04">send(proto=1, .ping:2)</text>
+
+  <!-- Mux send -->
+  <rect x="320" y="460" width="160" height="80" rx="4" fill="#fef3c7" stroke="#eab308" stroke-width="2"/>
+  <text x="400" y="488" text-anchor="middle" font-size="11" fill="#92400e" font-weight="bold">Mux.send</text>
+  <text x="400" y="504" text-anchor="middle" font-size="10" fill="#a16207">编码 + 加锁</text>
+  <text x="400" y="518" text-anchor="middle" font-size="10" fill="#a16207">写入 TCP</text>
+
+  <!-- Mux → TCP -->
+  <path d="M 480 500 L 560 500" fill="none" stroke="#ca8a04" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="520" y="494" text-anchor="middle" font-size="10" fill="#ca8a04">[proto_id][sender][receiver][len][payload]</text>
+
+  <!-- TCP socket -->
+  <rect x="560" y="473" width="80" height="48" rx="4" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
+  <text x="600" y="500" text-anchor="middle" font-size="12" fill="#334155">TCP</text>
+
+</svg>

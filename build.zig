@@ -12,12 +12,14 @@ pub fn build(b: *std.Build) void {
     const exe_infos: []const struct {
         name: []const u8,
         path: []const u8,
+        graph: bool,
     } = &.{
-        .{ .name = "counter", .path = "examples/counter.zig" },
-        .{ .name = "2pc", .path = "examples/2pc.zig" },
-        .{ .name = "pingpong", .path = "examples/pingpong.zig" },
-        .{ .name = "sendfile", .path = "examples/sendfile.zig" },
-        .{ .name = "random-pingpong-2pc", .path = "examples/random_pingpong_2pc.zig" },
+        .{ .name = "counter", .path = "examples/counter.zig", .graph = true },
+        .{ .name = "2pc", .path = "examples/2pc.zig", .graph = true },
+        .{ .name = "pingpong", .path = "examples/pingpong.zig", .graph = true },
+        .{ .name = "sendfile", .path = "examples/sendfile.zig", .graph = true },
+        .{ .name = "random-pingpong-2pc", .path = "examples/random_pingpong_2pc.zig", .graph = true },
+        .{ .name = "mux-demo", .path = "examples/mux_demo.zig", .graph = false },
     };
 
     const gen_graph = b.step("gen-graphs", "Generate SVG graph for the examples");
@@ -42,15 +44,17 @@ pub fn build(b: *std.Build) void {
             run_cmd.addArgs(args);
         }
 
-        addGraphToStep(
-            b,
-            gen_graph,
-            exe.root_module,
-            target,
-            mod,
-            .{ .custom = "../data" },
-            info.name,
-        );
+        if (info.graph) {
+            addGraphToStep(
+                b,
+                gen_graph,
+                exe.root_module,
+                target,
+                mod,
+                .{ .custom = "../data" },
+                info.name,
+            );
+        }
     }
 
     const mod_tests = b.addTest(.{
