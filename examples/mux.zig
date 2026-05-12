@@ -52,44 +52,54 @@ pub fn Slot(comptime buf_size: usize) type {
 /// Wire format of each frame:
 ///   [proto_id: u16][sender: u8][receiver: u8][payload_len: u32][payload: ...]
 ///   where payload is Codec-encoded data (state_id + tag + serialized fields).
-pub fn Mux(comptime Role: type, comptime max_protos: usize, comptime slot_size: usize) type {
+pub fn Mux(
+    comptime Role: type,
+    comptime max_protos: usize,
+    comptime slot_size: usize,
+    comptime io_buf_size: usize,
+) type {
     const role_count = std.meta.fields(Role).len;
 
     return struct {
         const Self = @This();
 
         io: std.Io,
+        stream: std.Io.net.Stream,
 
-        tcp_writer: *std.Io.Writer,
-        tcp_reader: *std.Io.Reader,
+        // Owned reader/writer buffers (keep alive as long as Self is alive)
+        reader_buf: [io_buf_size]u8,
+        writer_buf: [io_buf_size]u8,
+        tcp_reader_impl: std.Io.net.Stream.Reader,
+        tcp_writer_impl: std.Io.net.Stream.Writer,
+
         send_mutex: std.Io.Mutex = .init,
 
         // queues[proto_id][receiver_role_index]
-        queues: [max_protos][role_count]*Slot(slot_size),
+        queues: [max_protos][role_count]Slot(slot_size),
 
         running: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
         reader_thread: ?std.Thread = null,
 
-        pub fn init(
-            io: std.Io,
-            tcp_reader: *std.Io.Reader,
-            tcp_writer: *std.Io.Writer,
-            gpa: std.mem.Allocator,
-        ) !Self {
-            var queues: [max_protos][role_count]*Slot(slot_size) = undefined;
-            for (&queues) |*proto_queues| {
+        pub fn init(io: std.Io, stream: std.Io.net.Stream) Self {
+            var self: Self = undefined;
+            self.io = io;
+            self.stream = stream;
+            self.reader_buf = undefined;
+            self.writer_buf = undefined;
+            self.tcp_reader_impl = stream.reader(io, &self.reader_buf);
+            self.tcp_writer_impl = stream.writer(io, &self.writer_buf);
+            self.send_mutex = .init;
+            self.running = .init(false);
+            self.reader_thread = null;
+
+            // Initialize queues
+            for (&self.queues) |*proto_queues| {
                 for (proto_queues) |*slot_ptr| {
-                    const slot = try gpa.create(Slot(slot_size));
-                    slot.* = Slot(slot_size).init(io);
-                    slot_ptr.* = slot;
+                    slot_ptr.* = Slot(slot_size).init(io);
                 }
             }
-            return .{
-                .io = io,
-                .tcp_writer = tcp_writer,
-                .tcp_reader = tcp_reader,
-                .queues = queues,
-            };
+
+            return self;
         }
 
         /// Start the reader thread in the background.
@@ -98,29 +108,33 @@ pub fn Mux(comptime Role: type, comptime max_protos: usize, comptime slot_size: 
             self.reader_thread = std.Thread.spawn(.{}, readerLoop, .{self}) catch @panic("failed to spawn reader thread");
         }
 
-        /// Signal the reader thread to stop and wait for it.
+        /// Signal the reader thread to stop.
         pub fn stop(self: *Self) void {
             self.running.store(false, .monotonic);
         }
 
+        /// Wait for the reader thread to exit.
         pub fn wait(self: *Self) void {
-            if (self.reader_thread) |t| t.join();
+            if (self.reader_thread) |t| {
+                t.join();
+                self.reader_thread = null;
+            }
         }
 
         fn readerLoop(self: *Self) void {
+            const r = &self.tcp_reader_impl.interface;
             while (self.running.load(.monotonic)) {
-                const proto_id = self.tcp_reader.takeInt(u16, native_endian) catch break;
-                const _sender = self.tcp_reader.takeByte() catch break; // sender — not needed for routing
+                const proto_id = r.takeInt(u16, native_endian) catch break;
+                const _sender = r.takeByte() catch break;
                 _ = _sender;
-                const receiver_byte = self.tcp_reader.takeByte() catch break;
-                const payload_len = self.tcp_reader.takeInt(u32, native_endian) catch break;
+                const receiver_byte = r.takeByte() catch break;
+                const payload_len = r.takeInt(u32, native_endian) catch break;
 
                 if (payload_len > slot_size) {
                     std.debug.panic("mux: payload too large ({d} > {d})", .{ payload_len, slot_size });
                 }
 
-                // take() may reference the reader's internal buffer; copy into Slot immediately.
-                const data = self.tcp_reader.take(payload_len) catch break;
+                const data = r.take(payload_len) catch break;
                 var buf: [slot_size]u8 = undefined;
                 @memcpy(buf[0..payload_len], data);
 
@@ -138,14 +152,15 @@ pub fn Mux(comptime Role: type, comptime max_protos: usize, comptime slot_size: 
             try Codec.encode(&temp_writer, state_id, val);
             const encoded = temp_writer.buffered();
 
+            const w = &self.tcp_writer_impl.interface;
             self.send_mutex.lockUncancelable(self.io);
             defer self.send_mutex.unlock(self.io);
-            try self.tcp_writer.writeInt(u16, proto_id, native_endian);
-            try self.tcp_writer.writeByte(@intFromEnum(sender));
-            try self.tcp_writer.writeByte(@intFromEnum(receiver));
-            try self.tcp_writer.writeInt(u32, @intCast(encoded.len), native_endian);
-            try self.tcp_writer.writeAll(encoded);
-            try self.tcp_writer.flush();
+            try w.writeInt(u16, proto_id, native_endian);
+            try w.writeByte(@intFromEnum(sender));
+            try w.writeByte(@intFromEnum(receiver));
+            try w.writeInt(u32, @intCast(encoded.len), native_endian);
+            try w.writeAll(encoded);
+            try w.flush();
         }
 
         /// Receive a message.  Blocks on the per-(proto, role) Slot.

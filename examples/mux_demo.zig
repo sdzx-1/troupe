@@ -1,6 +1,7 @@
 const std = @import("std");
-const troupe = @import("troupe");
-const Data = troupe.Data;
+const Io = std.Io;
+const polyrole = @import("polyrole");
+const Data = polyrole.Data;
 const mux_mod = @import("mux.zig");
 const Mux = mux_mod.Mux;
 const net = std.Io.net;
@@ -15,6 +16,11 @@ const Role = enum { alice, bob };
 const AliceContext = struct {
     counter_round: u32 = 0,
     ping_round: u32 = 0,
+    io: Io,
+    xors: std.Random.Xoshiro256,
+    random: std.Random,
+    min: i64 = 10,
+    max: i64 = 50,
 };
 const BobContext = struct {};
 
@@ -29,9 +35,9 @@ const Context = struct {
 
 const CounterProto = union(enum) {
     num: Data(i32, @This()),
-    done: Data(void, troupe.Exit),
+    done: Data(void, polyrole.Exit),
 
-    pub const info: troupe.ProtocolInfo("counter", Role, Context{}, &.{ .alice, .bob }, &.{}) = .{
+    pub const info: polyrole.ProtocolInfo("counter", Role, Context{}, &.{ .alice, .bob }, &.{}) = .{
         .name = "Counter",
         .sender = .alice,
         .receiver = &.{.bob},
@@ -39,7 +45,8 @@ const CounterProto = union(enum) {
 
     pub fn process(ctx: *AliceContext) !@This() {
         ctx.counter_round += 1;
-        if (ctx.counter_round > 5) return .{ .done = .{ .data = {} } };
+        try ctx.io.sleep(.fromMilliseconds(ctx.random.intRangeAtMost(i64, ctx.min, ctx.max)), .awake);
+        if (ctx.counter_round > 30) return .{ .done = .{ .data = {} } };
         return .{ .num = .{ .data = @as(i32, @intCast(ctx.counter_round)) } };
     }
 
@@ -58,9 +65,9 @@ const CounterProto = union(enum) {
 
 const PingProto = union(enum) {
     ping: Data(i32, @This()),
-    done: Data(void, troupe.Exit),
+    done: Data(void, polyrole.Exit),
 
-    pub const info: troupe.ProtocolInfo("ping", Role, Context{}, &.{ .alice, .bob }, &.{}) = .{
+    pub const info: polyrole.ProtocolInfo("ping", Role, Context{}, &.{ .alice, .bob }, &.{}) = .{
         .name = "Ping",
         .sender = .alice,
         .receiver = &.{.bob},
@@ -68,7 +75,8 @@ const PingProto = union(enum) {
 
     pub fn process(ctx: *AliceContext) !@This() {
         ctx.ping_round += 1;
-        if (ctx.ping_round > 3) return .{ .done = .{ .data = {} } };
+        try ctx.io.sleep(.fromMilliseconds(ctx.random.intRangeAtMost(i64, ctx.min, ctx.max)), .awake);
+        if (ctx.ping_round > 30) return .{ .done = .{ .data = {} } };
         return .{ .ping = .{ .data = @as(i32, @intCast(ctx.ping_round)) } };
     }
 
@@ -85,25 +93,17 @@ const PingProto = union(enum) {
 // Runners and initial state IDs
 // ────────────────────────────────────────────────────────────────────
 
-const Runner0 = troupe.Runner(CounterProto);
-const Runner1 = troupe.Runner(PingProto);
+const Runner0 = polyrole.Runner(CounterProto);
+const Runner1 = polyrole.Runner(PingProto);
 
 const id0 = Runner0.idFromState(CounterProto);
 const id1 = Runner1.idFromState(PingProto);
 
 // ────────────────────────────────────────────────────────────────────
-// Helpers
+// Type alias for convenience
 // ────────────────────────────────────────────────────────────────────
 
-fn muxForConn(io: std.Io, stream: std.Io.net.Stream, gpa: std.mem.Allocator) !Mux(Role, 2, 4096) {
-    var rbuf: [8192]u8 = undefined;
-    var wbuf: [8192]u8 = undefined;
-    var reader = stream.reader(io, &rbuf);
-    var writer = stream.writer(io, &wbuf);
-    return try Mux(Role, 2, 4096).init(io, &reader.interface, &writer.interface, gpa);
-}
-
-const MuxType = Mux(Role, 2, 4096);
+const MuxType = Mux(Role, 2, 4096, 8192);
 
 // ────────────────────────────────────────────────────────────────────
 // main
@@ -111,7 +111,6 @@ const MuxType = Mux(Role, 2, 4096);
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
-    const gpa = init.gpa;
 
     // Use a fixed port so both threads know where to connect.
     const addr = try net.IpAddress.parse("127.0.0.1", 9876);
@@ -119,16 +118,12 @@ pub fn main(init: std.process.Init) !void {
 
     // ---- Bob: connect, start reader + both Runners ----
     const bob = try std.Thread.spawn(.{}, struct {
-        fn run(io_: std.Io, addr_: net.IpAddress, gpa_: std.mem.Allocator) !void {
+        fn run(io_: std.Io, addr_: net.IpAddress) !void {
             var bob_stream = try addr_.connect(io_, .{ .mode = .stream });
             defer bob_stream.close(io_);
 
-            var mux = try muxForConn(io_, bob_stream, gpa_);
+            var mux = MuxType.init(io_, bob_stream);
             mux.start();
-            defer {
-                mux.stop();
-                mux.wait();
-            }
 
             const h0 = try std.Thread.spawn(.{}, struct {
                 fn run(m: *MuxType) !void {
@@ -146,23 +141,46 @@ pub fn main(init: std.process.Init) !void {
 
             h0.join();
             h1.join();
+
+            mux.stop();
+            mux.wait();
         }
-    }.run, .{ io, addr, gpa });
+    }.run, .{ io, addr });
 
     // ---- Alice: accept, run both protocols (sequentially) ----
     {
         var stream = try server.accept(io);
         defer stream.close(io);
 
-        var mux = try muxForConn(io, stream, gpa);
+        var mux = MuxType.init(io, stream);
 
-        var alice_ctx = AliceContext{};
+        var alice_ctx1 = AliceContext{
+            .io = io,
+            .xors = undefined,
+            .random = undefined,
+        };
+
+        io.random(@ptrCast(&alice_ctx1.xors));
+        alice_ctx1.random = alice_ctx1.xors.random();
 
         std.debug.print("=== Running Counter (proto 0) ===\n", .{});
-        try Runner0.runProtocol(.alice, null, false, mux.handle(0), id0, &alice_ctx);
+
+        const t1 = try std.Thread.spawn(.{}, Runner0.runProtocol, .{ .alice, null, false, mux.handle(0), id0, &alice_ctx1 });
+        defer t1.join();
+
+        var alice_ctx2 = AliceContext{
+            .io = io,
+            .xors = undefined,
+            .random = undefined,
+        };
+
+        io.random(@ptrCast(&alice_ctx2.xors));
+        alice_ctx2.random = alice_ctx2.xors.random();
 
         std.debug.print("=== Running Ping (proto 1) ===\n", .{});
-        try Runner1.runProtocol(.alice, null, false, mux.handle(1), id1, &alice_ctx);
+
+        const t2 = try std.Thread.spawn(.{}, Runner1.runProtocol, .{ .alice, null, false, mux.handle(1), id1, &alice_ctx2 });
+        defer t2.join();
     }
 
     bob.join();
