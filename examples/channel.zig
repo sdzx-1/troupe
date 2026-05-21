@@ -1,6 +1,6 @@
 const std = @import("std");
 const Codec = @import("Codec.zig");
-const Notify = @import("troupe").Notify;
+const Notify = @import("polyrole").Notify;
 const net = std.net;
 const Io = std.Io;
 

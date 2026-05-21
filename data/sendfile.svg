@@ -16,22 +16,28 @@
 </g>
 <g id="clust2" class="cluster">
 <title>cluster_fsm_0</title>
-<polygon fill="none" stroke="black" points="16,-128.5 16,-384.25 542,-384.25 542,-128.5 16,-128.5"/>
-<text xml:space="preserve" text-anchor="middle" x="279" y="-366.95" font-family="Times,serif" font-size="14.00">sendfile: { .alice, .bob }</text>
+<polygon fill="none" stroke="black" points="260,-16 260,-93.25 368,-93.25 368,-16 260,-16"/>
+<text xml:space="preserve" text-anchor="middle" x="314" y="-75.95" font-family="Times,serif" font-size="14.00">polyrole_exit</text>
 </g>
 <g id="clust3" class="cluster">
 <title>cluster_fsm_1</title>
-<polygon fill="none" stroke="black" points="266,-16 266,-93.25 363,-93.25 363,-16 266,-16"/>
-<text xml:space="preserve" text-anchor="middle" x="314.5" y="-75.95" font-family="Times,serif" font-size="14.00">troupe_exit</text>
+<polygon fill="none" stroke="black" points="16,-128.5 16,-384.25 542,-384.25 542,-128.5 16,-128.5"/>
+<text xml:space="preserve" text-anchor="middle" x="279" y="-366.95" font-family="Times,serif" font-size="14.00">sendfile: { .alice, .bob }</text>
+</g>
+<!-- 3 -->
+<g id="node1" class="node">
+<title>3</title>
+<polygon fill="none" stroke="brown" points="348.62,-60 279.38,-60 279.38,-24 348.62,-24 348.62,-60"/>
+<text xml:space="preserve" text-anchor="middle" x="314" y="-37.33" font-family="Times,serif" font-size="14.00">[3] Exit</text>
 </g>
 <!-- 0 -->
-<g id="node1" class="node">
+<g id="node2" class="node">
 <title>0</title>
 <polygon fill="none" stroke="red" points="312,-351 110,-351 110,-315 312,-315 312,-351"/>
 <text xml:space="preserve" text-anchor="middle" x="211" y="-328.32" font-family="Times,serif" font-size="14.00">[0] Start .alice &#45;&gt; { .bob }</text>
 </g>
 <!-- 1 -->
-<g id="node2" class="node">
+<g id="node3" class="node">
 <title>1</title>
 <polygon fill="none" stroke="green" points="311.62,-261.75 110.38,-261.75 110.38,-225.75 311.62,-225.75 311.62,-261.75"/>
 <text xml:space="preserve" text-anchor="middle" x="211" y="-239.07" font-family="Times,serif" font-size="14.00">[1] Send .alice &#45;&gt; { .bob }</text>
@@ -51,7 +57,7 @@
 <text xml:space="preserve" text-anchor="middle" x="346.5" y="-239.07" font-family="Times,serif" font-size="14.00" fill="green">send</text>
 </g>
 <!-- 2 -->
-<g id="node3" class="node">
+<g id="node4" class="node">
 <title>2</title>
 <polygon fill="none" stroke="blue" points="269.75,-172.5 24.25,-172.5 24.25,-136.5 269.75,-136.5 269.75,-172.5"/>
 <text xml:space="preserve" text-anchor="middle" x="147" y="-149.82" font-family="Times,serif" font-size="14.00">[2] CheckHash .bob &#45;&gt; { .alice }</text>
@@ -64,7 +70,7 @@
 <text xml:space="preserve" text-anchor="middle" x="168.75" y="-194.45" font-family="Times,serif" font-size="14.00" fill="green">check</text>
 </g>
 <!-- 4 -->
-<g id="node4" class="node">
+<g id="node5" class="node">
 <title>4</title>
 <polygon fill="none" stroke="navy" points="533.75,-172.5 288.25,-172.5 288.25,-136.5 533.75,-136.5 533.75,-172.5"/>
 <text xml:space="preserve" text-anchor="middle" x="411" y="-149.82" font-family="Times,serif" font-size="14.00">[4] CheckHash .bob &#45;&gt; { .alice }</text>
@@ -76,25 +82,19 @@
 <polygon fill="green" stroke="green" points="361.92,-180.73 369.69,-173.52 359.12,-174.31 361.92,-180.73"/>
 <text xml:space="preserve" text-anchor="middle" x="344.66" y="-194.45" font-family="Times,serif" font-size="14.00" fill="green">final</text>
 </g>
-<!-- 2&#45;&gt;1 -->
-<g id="edge5" class="edge">
-<title>2&#45;&gt;1</title>
-<path fill="none" stroke="blue" d="M171.98,-172.99C178.1,-178.12 184.26,-184.09 189,-190.5 194.4,-197.79 198.76,-206.6 202.13,-214.89"/>
-<polygon fill="blue" stroke="blue" points="198.84,-216.1 205.59,-224.26 205.41,-213.67 198.84,-216.1"/>
-<text xml:space="preserve" text-anchor="middle" x="235.55" y="-194.45" font-family="Times,serif" font-size="14.00" fill="blue">succeeded</text>
-</g>
-<!-- 3 -->
-<g id="node5" class="node">
-<title>3</title>
-<polygon fill="none" stroke="brown" points="348.62,-60 279.38,-60 279.38,-24 348.62,-24 348.62,-60"/>
-<text xml:space="preserve" text-anchor="middle" x="314" y="-37.33" font-family="Times,serif" font-size="14.00">[3] Exit</text>
-</g>
 <!-- 2&#45;&gt;3 -->
 <g id="edge6" class="edge">
 <title>2&#45;&gt;3</title>
 <path fill="none" stroke="blue" d="M173.09,-136.23C201.44,-117.48 246.9,-87.4 278.49,-66.5"/>
 <polygon fill="blue" stroke="blue" points="280.14,-69.6 286.55,-61.16 276.28,-63.76 280.14,-69.6"/>
 <text xml:space="preserve" text-anchor="middle" x="245.37" y="-105.2" font-family="Times,serif" font-size="14.00" fill="blue">failed</text>
+</g>
+<!-- 2&#45;&gt;1 -->
+<g id="edge5" class="edge">
+<title>2&#45;&gt;1</title>
+<path fill="none" stroke="blue" d="M171.98,-172.99C178.1,-178.12 184.26,-184.09 189,-190.5 194.4,-197.79 198.76,-206.6 202.13,-214.89"/>
+<polygon fill="blue" stroke="blue" points="198.84,-216.1 205.59,-224.26 205.41,-213.67 198.84,-216.1"/>
+<text xml:space="preserve" text-anchor="middle" x="235.55" y="-194.45" font-family="Times,serif" font-size="14.00" fill="blue">succeeded</text>
 </g>
 <!-- 4&#45;&gt;3 -->
 <g id="edge7" class="edge">

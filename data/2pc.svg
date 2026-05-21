@@ -21,8 +21,8 @@
 </g>
 <g id="clust3" class="cluster">
 <title>cluster_fsm_1</title>
-<polygon fill="none" stroke="black" points="114,-16 114,-93.25 211,-93.25 211,-16 114,-16"/>
-<text xml:space="preserve" text-anchor="middle" x="162.5" y="-75.95" font-family="Times,serif" font-size="14.00">troupe_exit</text>
+<polygon fill="none" stroke="black" points="108,-16 108,-93.25 216,-93.25 216,-16 108,-16"/>
+<text xml:space="preserve" text-anchor="middle" x="162" y="-75.95" font-family="Times,serif" font-size="14.00">polyrole_exit</text>
 </g>
 <!-- 0 -->
 <g id="node1" class="node">

@@ -1,12 +1,12 @@
-# Troupe – A Deterministic Distributed Protocol Composition Framework
+# Polyrole – A Deterministic Distributed Protocol Composition Framework
 
-Troupe is a distributed protocol construction library built on Zig's type system. Its core philosophy is **using type determinism to counter communication uncertainty**: protocols are modeled as fully deterministic state machines, correctness is guaranteed through compile-time verification, and all communication unreliability (latency, loss, reordering) is isolated behind replaceable channel layers. Ultimately, developers can construct complex multi-role protocols as if writing single-threaded programs, confident that they will execute as intended in any environment.
+Polyrole is a distributed protocol construction library built on Zig's type system. Its core philosophy is **using type determinism to counter communication uncertainty**: protocols are modeled as fully deterministic state machines, correctness is guaranteed through compile-time verification, and all communication unreliability (latency, loss, reordering) is isolated behind replaceable channel layers. Ultimately, developers can construct complex multi-role protocols as if writing single-threaded programs, confident that they will execute as intended in any environment.
 
 [youtube](https://youtu.be/s4WASXIHB_s?si=xKq0E56VFddwet8U), [bilibili](https://www.bilibili.com/video/BV1wgfEBvEHu/?share_source=copy_web&vd_source=06f3616867de4f0c8ec011af7da3e868)
 
 ## Core Idea: Protocol as State Graph
 
-In Troupe, a protocol consists of a set of **states**, each represented as a tagged union. Each field of the union represents a possible message, and the message's "next state" is explicitly specified through a type parameter. For example:
+In Polyrole, a protocol consists of a set of **states**, each represented as a tagged union. Each field of the union represents a possible message, and the message's "next state" is explicitly specified through a type parameter. For example:
 
 ```zig
 const Ping = union(enum) {
@@ -46,11 +46,11 @@ When a state's union has multiple fields (i.e., multiple branch choices), it mea
 
 To ensure all internal roles (other roles in `internal_roles`) learn of this choice, **the generated message must be sent to all internal roles except the sender**. This is why the library enforces: when a state's union has more than one field, the receiver list must cover all other internal roles, satisfying `1 + receiver.len == internal_roles.len`.
 
-If any internal role is missing, it would never learn the new state, leading to system-wide inconsistency. This rule fundamentally prevents "partial role ignorance" and is a cornerstone of Troupe's global determinism guarantee.
+If any internal role is missing, it would never learn the new state, leading to system-wide inconsistency. This rule fundamentally prevents "partial role ignorance" and is a cornerstone of Polyrole's global determinism guarantee.
 
 ## Protocol Composition: Nested State Graphs
 
-Troupe's most powerful feature is the ability to seamlessly compose multiple protocols into a larger one. Composition is straightforward: pass one protocol's entry state as the `NextState` type parameter of another protocol's message.
+Polyrole's most powerful feature is the ability to seamlessly compose multiple protocols into a larger one. Composition is straightforward: pass one protocol's entry state as the `NextState` type parameter of another protocol's message.
 
 For example, in the `random-pingpong-2pc` demo:
 
@@ -78,13 +78,13 @@ These checks ensure the composed protocol remains a valid deterministic state ma
 
 ## Cross-Protocol Synchronization: External Role Notification
 
-When protocol execution reaches a state marked as "external" (appearing in the `extern_state` list), it means the current protocol ends and another begins. To ensure all roles—including those not participating in the current protocol—know about this transition, Troupe mandates that `internal_roles[0]` (the first internal role) sends a special `Notify` message to all **external roles** (roles not in `internal_roles`), containing the new state's ID.
+When protocol execution reaches a state marked as "external" (appearing in the `extern_state` list), it means the current protocol ends and another begins. To ensure all roles—including those not participating in the current protocol—know about this transition, Polyrole mandates that `internal_roles[0]` (the first internal role) sends a special `Notify` message to all **external roles** (roles not in `internal_roles`), containing the new state's ID.
 
 External roles, in their next loop iteration, first receive this notification and jump directly to the corresponding state, synchronizing with internal roles. This "push-style" synchronization avoids blind polling or guessing, ensuring consistent state migration across the entire system.
 
 ## Context Aggregation: A Bridge for Data Sharing
 
-Different protocols may need to access the same role's data (e.g., counters, random seeds). Troupe solves this through an **aggregated context structure**: developers define a top-level `Context` where each role has a corresponding field containing all data that role might need (including sub-context fields for various protocols).
+Different protocols may need to access the same role's data (e.g., counters, random seeds). Polyrole solves this through an **aggregated context structure**: developers define a top-level `Context` where each role has a corresponding field containing all data that role might need (including sub-context fields for various protocols).
 
 For example:
 
@@ -101,7 +101,7 @@ In state handler functions (`process`/`preprocess`), the role-specific context t
 
 ## Compile-Time Graph Traversal: The Last Line of Defense
 
-Troupe performs a depth-first traversal of all reachable states at compile time via `reachableStates`, generating a complete state list and state ID enumeration. This process not only builds the runtime dispatch table but, more importantly, executes extensive **consistency checks**:
+Polyrole performs a depth-first traversal of all reachable states at compile time via `reachableStates`, generating a complete state list and state ID enumeration. This process not only builds the runtime dispatch table but, more importantly, executes extensive **consistency checks**:
 
 - Verifies that all states' context types match (ensuring each role's field type is consistent across the aggregated context).
 - Validates the receiver count rule for branch states.
@@ -113,25 +113,25 @@ Any rule violation results in a compile error with a clear message. This means t
 
 ## Summary
 
-Troupe's design embodies a profound philosophy: **transform the complexity of distributed protocols into verifiable deterministic models through the type system**. It pushes uncertainty to the communication layer while keeping the protocol core as precise as a script. Developers need only define states, transitions, and role behaviors—the framework handles dispatching, synchronization, and validation automatically.
+Polyrole's design embodies a profound philosophy: **transform the complexity of distributed protocols into verifiable deterministic models through the type system**. It pushes uncertainty to the communication layer while keeping the protocol core as precise as a script. Developers need only define states, transitions, and role behaviors—the framework handles dispatching, synchronization, and validation automatically.
 
-Whether implementing a simple ping-pong, a multi-role multi-stage two-phase commit, or even dynamic compositions of these protocols, Troupe enables you to build with **type safety, composability, and compile-time verification**, ultimately running reliable, efficient distributed systems.
+Whether implementing a simple ping-pong, a multi-role multi-stage two-phase commit, or even dynamic compositions of these protocols, Polyrole enables you to build with **type safety, composability, and compile-time verification**, ultimately running reliable, efficient distributed systems.
 
-> **The Troupe Metaphor**: Each role is an actor, protocols are scripts, states are scenes, messages are lines. Actors perform strictly according to the script; even if stage surprises occur (communication latency), backstage crew (channel layer) ensure lines are delivered accurately. The audience always witnesses a deterministic, brilliant performance.
+> **The Polyrole Metaphor**: Each role is an actor, protocols are scripts, states are scenes, messages are lines. Actors perform strictly according to the script; even if stage surprises occur (communication latency), backstage crew (channel layer) ensure lines are delivered accurately. The audience always witnesses a deterministic, brilliant performance.
 
 
-## Adding troupe to your project
+## Adding polyrole to your project
 Requires zig version 0.16.0.
 
 
-Download and add troupe as a dependency by running the following command in your project root:
+Download and add polyrole as a dependency by running the following command in your project root:
 ```shell
-zig fetch --save git+https://github.com/sdzx-1/troupe.git
+zig fetch --save git+https://github.com/sdzx-1/polyrole.git
 ```
 
 Then, retrieve the dependency in your build.zig:
 ```zig
-const troupe = b.dependency("troupe", .{
+const polyrole = b.dependency("polyrole", .{
     .target = target,
     .optimize = optimize,
 });
@@ -139,12 +139,12 @@ const troupe = b.dependency("troupe", .{
 
 Finally, add the dependency's module to your module's imports:
 ```zig
-exe_mod.addImport("troupe", troupe.module("root"));
+exe_mod.addImport("polyrole", polyrole.module("root"));
 ```
 
-You should now be able to import troupe in your module's code:
+You should now be able to import polyrole in your module's code:
 ```zig
-const troupe = @import("troupe");
+const polyrole = @import("polyrole");
 ```
 
 ## Examples
@@ -157,7 +157,7 @@ zig build pingpong
 
 A basic two-role alternating communication protocol between Alice and Bob. Alice sends a number to Bob; Bob increments it and sends it back. After several exchanges, the protocol exits.
 
-This is the simplest possible multi-role Troupe example. It demonstrates:
+This is the simplest possible multi-role Polyrole example. It demonstrates:
 - **Two-role state machine**: States alternate between `Ping` (Alice as sender) and `Pong` (Bob as sender), showing how `sender` and `receiver` swap between states.
 - **Parameterized protocol factory**: `MkPingPong` is a generic protocol template that can be reused with different roles and exit states.
 - **Cast state**: `PongFn` provides the handler functions; `info.Cast(...)` wraps it into a protocol state — a reusable building block for request-response patterns.
@@ -177,7 +177,7 @@ zig build sendfile
 
 Alice sends a file to Bob over a TCP connection. Data is streamed in 4 KB chunks. After every 20 MiB of data, or when the file ends, the sender sends a hash of the transmitted data; the receiver independently computes the hash and reports whether it matches, enabling early detection of corruption.
 
-This example demonstrates real-world protocol design with Troupe:
+This example demonstrates real-world protocol design with Polyrole:
 - **Self-looping state for streaming**: `Send.send: Data([]const u8, @This())` — the `Send` state references itself, forming a cycle in the state graph that supports arbitrary-length data transfer. This is the pattern for any streaming protocol.
 - **State template as protocol subroutine**: `CheckHash(A, B)` is not a single fixed state but a **parameterized state template**. It accepts two type parameters — the success continuation `A` and the failure continuation `B` — and is instantiated twice with different continuations: `CheckHash(@This(), Failed)` for periodic checkpoints (continue sending on success), and `CheckHash(Successed, Failed)` for the final chunk (exit on success).
 - **Receiver-driven integrity verification**: The sender commits to a hash; the receiver independently computes the hash and reports the result. The `CheckHash` state reverses sender/receiver roles: the verification result flows from receiver back to sender.
@@ -226,7 +226,7 @@ pub fn process(parent_ctx: *@field(context, @tagName(sender))) !@This() {
 }
 ```
 
-The `Send` state demonstrates a principle that recurs throughout well-designed Troupe protocols: **the type signature tells the structural story; the handler function fills in the runtime details.** Reading the three union fields, you already know the entire flow — streaming, checkpointing, termination. The `process` function is just the concrete filling of that skeleton.
+The `Send` state demonstrates a principle that recurs throughout well-designed Polyrole protocols: **the type signature tells the structural story; the handler function fills in the runtime details.** Reading the three union fields, you already know the entire flow — streaming, checkpointing, termination. The `process` function is just the concrete filling of that skeleton.
 
 The protocol is defined in [`examples/protocols/sendfile.zig`](./examples/protocols/sendfile.zig), with TCP setup and file I/O in [`examples/sendfile.zig`](./examples/sendfile.zig).
 
@@ -263,8 +263,8 @@ zig build random-pingpong-2pc
 
 A Selector role randomly chooses one of three composite protocol paths to execute, then repeats for 300 rounds. Each path chains multiple pingpong exchanges between different pairs followed by a two-phase commit with a different coordinator.
 
-This is Troupe's showcase example, demonstrating full compositional power:
-- **Protocol composition with different participant sets**: PingPong involves 2 roles; 2PC involves 3 roles. Troupe bridges these different sets through the `extern_state` mechanism — when one sub-protocol ends, `internal_roles[0]` automatically sends a `Notify` message to all roles not participating in that sub-protocol, ensuring the entire system stays synchronized.
+This is Polyrole's showcase example, demonstrating full compositional power:
+- **Protocol composition with different participant sets**: PingPong involves 2 roles; 2PC involves 3 roles. Polyrole bridges these different sets through the `extern_state` mechanism — when one sub-protocol ends, `internal_roles[0]` automatically sends a `Notify` message to all roles not participating in that sub-protocol, ensuring the entire system stays synchronized.
 - **Nested type composition**: The protocol topology is expressed as a single nested type expression — `PingPong(.alice, .bob, PingPong(.bob, .charlie, ...).Ping).Ping`. The compiler expands this nesting into a flat state graph at compile time, validating all paths.
 - **Dynamic runtime choice, compile-time verified**: The Selector's `process` function uses random numbers to pick a branch. All branches are pre-computed in the state graph; the runtime follows the chosen path. The compiler has validated **every possible path** before the program runs.
 - **Aggregated context across sub-protocols**: Each role's context bundles fields for both pingpong and 2PC participation. When a role enters a sub-protocol, `info.Ctx` provides access to the relevant subset of its context, keeping handler functions type-safe and focused.

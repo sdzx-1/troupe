@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path(info.path),
                 .target = target,
                 .optimize = optimize,
-                .imports = &.{.{ .name = "troupe", .module = mod }},
+                .imports = &.{.{ .name = "polyrole", .module = mod }},
             }),
         });
 
@@ -66,11 +66,11 @@ fn addGraphToStep(
     step: *std.Build.Step,
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
-    troupe: *std.Build.Module,
+    polyrole: *std.Build.Module,
     install_dir: std.Build.InstallDir,
     dst_rel_path: []const u8,
 ) void {
-    const graph_file = addGraphFile(b, "graph", mod, troupe, target);
+    const graph_file = addGraphFile(b, "graph", mod, polyrole, target);
 
     const dot_cmd = b.addSystemCommand(&.{"dot"});
 
@@ -89,7 +89,7 @@ pub fn addGraphFile(
     b: *std.Build,
     module_name: []const u8,
     module: *std.Build.Module,
-    troupe: *std.Build.Module,
+    polyrole: *std.Build.Module,
     target: std.Build.ResolvedTarget,
 ) std.Build.LazyPath {
     var allocating: std.Io.Writer.Allocating = .init(b.graph.arena);
@@ -97,13 +97,13 @@ pub fn addGraphFile(
 
     writer.print(
         \\const std = @import("std");
-        \\const troupe = @import("troupe");
+        \\const polyrole = @import("polyrole");
         \\const Target = @import("{s}");
         \\pub fn main(init: std.process.Init) !void {{
         \\  const io = init.io;
         \\  var gpa_instance = std.heap.DebugAllocator(.{{}}){{}};
         \\  const gpa = gpa_instance.allocator();
-        \\  var graph = try troupe.Graph.initWithFsm(gpa, Target.EnterFsmState);
+        \\  var graph = try polyrole.Graph.initWithFsm(gpa, Target.EnterFsmState);
         \\  defer graph.deinit();
         \\  var stdout_buffer: [1024]u8 = undefined;
         \\  var stdout_writer = std.Io.File.stdout().writer(io, &stdout_buffer);
@@ -121,7 +121,7 @@ pub fn addGraphFile(
         .root_source_file = options.getOutput(),
         .target = target,
         .imports = &.{
-            .{ .name = "troupe", .module = troupe },
+            .{ .name = "polyrole", .module = polyrole },
             .{ .name = b.allocator.dupe(u8, module_name) catch @panic("OOM"), .module = module },
         },
     });
@@ -139,11 +139,11 @@ pub fn addInstallGraphFile(
     b: *std.Build,
     module_name: []const u8,
     module: *std.Build.Module,
-    troupe: *std.Build.Module,
+    polyrole: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     install_dir: std.Build.InstallDir,
 ) *std.Build.Step.InstallFile {
-    const dot_file = addGraphFile(b, module_name, module, troupe, target);
+    const dot_file = addGraphFile(b, module_name, module, polyrole, target);
 
     const output_name = std.mem.concat(b.allocator, u8, &.{ module_name, ".dot" }) catch @panic("OOM");
     return b.addInstallFileWithDir(dot_file, install_dir, output_name);

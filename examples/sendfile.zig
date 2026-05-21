@@ -1,6 +1,6 @@
 const std = @import("std");
 const Io = std.Io;
-const troupe = @import("troupe");
+const polyrole = @import("polyrole");
 const net = std.Io.net;
 const channel = @import("channel.zig");
 const StreamChannel = channel.StreamChannel;
@@ -25,9 +25,9 @@ fn SendFile(Successed: type, Failed: type) type {
     return sendfile.MkSendFile(Role, .alice, .bob, Context{}, 20 * 1024 * 1024, .send_context, .recv_context, Successed, Failed);
 }
 
-pub const EnterFsmState = SendFile(troupe.Exit, troupe.Exit).Start;
+pub const EnterFsmState = SendFile(polyrole.Exit, polyrole.Exit).Start;
 
-pub const Runner = troupe.Runner(EnterFsmState);
+pub const Runner = polyrole.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 
 pub fn main(init: std.process.Init) !void {

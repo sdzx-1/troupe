@@ -1,7 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
-const troupe = @import("troupe");
-const Data = troupe.Data;
+const polyrole = @import("polyrole");
+const Data = polyrole.Data;
 const pingpong = @import("./protocols/pingpong.zig");
 const mk2pc = @import("./protocols/two_phase_commit.zig").mk2pc;
 const channel = @import("channel.zig");
@@ -106,7 +106,7 @@ const Context = struct {
 
 pub const EnterFsmState = Start;
 
-pub const Runner = troupe.Runner(EnterFsmState);
+pub const Runner = polyrole.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 
 fn PingPong(client: AllRole, server: AllRole, Next: type) type {
@@ -122,13 +122,13 @@ fn PingPong(client: AllRole, server: AllRole, Next: type) type {
 }
 
 fn CAB(Next: type) type {
-    return mk2pc(AllRole, .charlie, .alice, .bob, Context{}, Next, troupe.Exit);
+    return mk2pc(AllRole, .charlie, .alice, .bob, Context{}, Next, polyrole.Exit);
 }
 fn ABC(Next: type) type {
-    return mk2pc(AllRole, .alice, .bob, .charlie, Context{}, Next, troupe.Exit);
+    return mk2pc(AllRole, .alice, .bob, .charlie, Context{}, Next, polyrole.Exit);
 }
 fn BAC(Next: type) type {
-    return mk2pc(AllRole, .bob, .alice, .charlie, Context{}, Next, troupe.Exit);
+    return mk2pc(AllRole, .bob, .alice, .charlie, Context{}, Next, polyrole.Exit);
 }
 
 pub const Start = union(enum) {
@@ -139,9 +139,9 @@ pub const Start = union(enum) {
     ).Ping).Ping).Ping),
     alice_as_coordinator: Data(void, PingPong(.charlie, .bob, ABC(@This()).Begin).Ping),
     bob_as_coordinator: Data(void, PingPong(.alice, .charlie, BAC(@This()).Begin).Ping),
-    exit: Data(void, troupe.Exit),
+    exit: Data(void, polyrole.Exit),
 
-    pub const info: troupe.ProtocolInfo(
+    pub const info: polyrole.ProtocolInfo(
         "random_pingpong_and_2pc",
         AllRole,
         Context{},

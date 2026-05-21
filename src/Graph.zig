@@ -1,5 +1,5 @@
 const std = @import("std");
-const troupe = @import("root.zig");
+const polyrole = @import("root.zig");
 
 
 
@@ -132,17 +132,17 @@ pub fn initWithFsm(allocator: std.mem.Allocator, comptime State_: type) !Graph {
     var nodes: std.ArrayListUnmanaged(Node) = .empty;
     var edges: std.ArrayListUnmanaged(Edge) = .empty;
 
-    const state_map: troupe.StateMap = comptime .init(State_);
+    const state_map: polyrole.StateMap = comptime .init(State_);
 
     inline for (state_map.states, state_map.state_machine_names, 0..) |State, fsm_name, state_idx| {
         try nodes.append(arena_allocator, .{
-            .state_description = if (State == troupe.Exit) "Exit" else try std.fmt.allocPrint(
+            .state_description = if (State == polyrole.Exit) "Exit" else try std.fmt.allocPrint(
                 arena_allocator,
                 "{s} .{t} -> {any}",
                 .{ State.info.name, State.info.sender, State.info.receiver },
             ),
             .id = @intCast(state_idx),
-            .fsm_description = if (State == troupe.Exit) fsm_name else try std.fmt.allocPrint(
+            .fsm_description = if (State == polyrole.Exit) fsm_name else try std.fmt.allocPrint(
                 arena_allocator,
                 "{s}: {any}",
                 .{ fsm_name, @TypeOf(State.info).internal_roles },

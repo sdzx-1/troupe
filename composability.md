@@ -1,8 +1,8 @@
-# Composability: How Troupe Tames the Complexity of Distributed Systems
+# Composability: How Polyrole Tames the Complexity of Distributed Systems
 
 In the world of distributed systems, we often face a dilemma: **the more complex the business logic, the easier the code spirals out of control**. Traditional programming approaches require each node (role) to implement protocol logic independently, leading to maintenance costs that grow exponentially as the number of protocols and roles increases. Eventually, systems become tangled messes—modifying one detail requires synchronizing code across all roles, and debugging a cross-role issue requires tracing multiple independently implemented state machines.
 
-Troupe emerged precisely to break this dilemma. Its core weapon is not simple state machine abstraction, but **composability**. Composability elevates Troupe from a small protocol library to a "construction language" capable of building extremely complex distributed systems. This article explores how composability solves traditional challenges and the revolution in complexity it brings.
+Polyrole emerged precisely to break this dilemma. Its core weapon is not simple state machine abstraction, but **composability**. Composability elevates Polyrole from a small protocol library to a "construction language" capable of building extremely complex distributed systems. This article explores how composability solves traditional challenges and the revolution in complexity it brings.
 
 ## I. The Traditional Way: Logic Dispersion and Maintenance Nightmares
 
@@ -24,7 +24,7 @@ This decentralized implementation creates several pain points:
 
 ## II. The Core Idea of Composability: Define Once, Derive Everywhere
 
-Troupe completely overturns this paradigm. It defines protocols as **typed state machines**, with all role behaviors derived from this single definition. You no longer need to write separate code for Alice, Bob, and Charlie—you only need to write one "script," and the script itself is composable.
+Polyrole completely overturns this paradigm. It defines protocols as **typed state machines**, with all role behaviors derived from this single definition. You no longer need to write separate code for Alice, Bob, and Charlie—you only need to write one "script," and the script itself is composable.
 
 ### 1. Protocol as Type
 Each protocol state is a tagged union, where each field represents a possible message, and the message's "next state" is specified via the `Data(NextState)` type parameter. For example:
@@ -68,13 +68,13 @@ O(R \times \sum S_i + R \times T)
 \]
 More importantly, maintenance costs grow exponentially with \(R\) and \(T\)—any change must be synchronized across all roles' code, and the combinatorial explosion of interaction tests compounds the problem.
 
-**Troupe approach**: Protocols are defined once, role behaviors derived automatically; protocol composition is achieved through type declarations, eliminating manual switching logic. Total code complexity is roughly:
+**Polyrole approach**: Protocols are defined once, role behaviors derived automatically; protocol composition is achieved through type declarations, eliminating manual switching logic. Total code complexity is roughly:
 \[
 O(\sum S_i + T)
 \]
 Here \(T\) represents the nesting depth in composition declarations, expanded by the compiler. Maintenance cost is independent of the number of roles \(R\)—adding a new role simply means adding a corresponding field to `Context`, with all protocol logic automatically applicable.
 
-As \(R\) and \(P\) grow large, this difference becomes dramatic. A system with 10 roles, 20 protocols, and 50 switches might require tens of thousands of lines of scattered, hard-to-maintain code in the traditional approach, while Troupe might need only hundreds of lines of declarations. More importantly, Troupe's code naturally serves as the **complete specification** of the system—you don't need to read multiple files to understand overall behavior; you only need to look at the top-level composition declaration.
+As \(R\) and \(P\) grow large, this difference becomes dramatic. A system with 10 roles, 20 protocols, and 50 switches might require tens of thousands of lines of scattered, hard-to-maintain code in the traditional approach, while Polyrole might need only hundreds of lines of declarations. More importantly, Polyrole's code naturally serves as the **complete specification** of the system—you don't need to read multiple files to understand overall behavior; you only need to look at the top-level composition declaration.
 
 ## IV. Example: Multi-Protocol Symphony in random-pingpong-2pc
 
@@ -96,19 +96,19 @@ These few lines define a complex protocol sequence: three pingpong rounds execut
 - Similarly handle Bob and Charlie's code.
 - Manage cross-protocol synchronization: when the pingpong sequence ends, how to notify the non-participating role (Selector)?
 
-In Troupe, all this is compressed into a type declaration. The compiler expands this nesting, generates the complete state graph, and automatically arranges cross-protocol notification (when the entire sequence ends, Selector receives notification). Developers focus solely on the core logic of each protocol, without worrying about orchestration and synchronization.
+In Polyrole, all this is compressed into a type declaration. The compiler expands this nesting, generates the complete state graph, and automatically arranges cross-protocol notification (when the entire sequence ends, Selector receives notification). Developers focus solely on the core logic of each protocol, without worrying about orchestration and synchronization.
 
 ## V. The Philosophical Significance of Composability: From Runtime Orchestration to Design-Time Specification
 
-The true value of composability lies in how it **shifts distributed system "orchestration" from runtime to design time**. In traditional systems, protocol switching, role synchronization, and state distribution are all accomplished at runtime through message passing—which itself is the source of distributed problems. Troupe elevates these responsibilities to the type system level: composition relationships are fixed at compile time, and synchronization mechanisms are automatically generated by the framework.
+The true value of composability lies in how it **shifts distributed system "orchestration" from runtime to design time**. In traditional systems, protocol switching, role synchronization, and state distribution are all accomplished at runtime through message passing—which itself is the source of distributed problems. Polyrole elevates these responsibilities to the type system level: composition relationships are fixed at compile time, and synchronization mechanisms are automatically generated by the framework.
 
-This approach embodies a golden rule of software engineering: **problems that can be solved early should not be left for runtime**. Troupe pushes composition correctness checks forward to compile time and automates cross-protocol synchronization logic, allowing developers to focus on core protocol logic rather than drowning in endless orchestration details.
+This approach embodies a golden rule of software engineering: **problems that can be solved early should not be left for runtime**. Polyrole pushes composition correctness checks forward to compile time and automates cross-protocol synchronization logic, allowing developers to focus on core protocol logic rather than drowning in endless orchestration details.
 
 From a cognitive perspective, composability dramatically lowers the barrier to understanding a system. You no longer need to read each role's code to piece together overall behavior—just look at the top-level composition declaration. It's like a map, clearly showing the connections between protocols. This "declarative" programming style makes complex systems readable and reason-able.
 
-## VI. Conclusion: Composability Is Troupe's Greatest Value
+## VI. Conclusion: Composability Is Polyrole's Greatest Value
 
 Determinism ensures the system won't go out of control; compile-time validation ensures the system won't be wrong; but **composability ensures you can build systems complex enough to matter**. Without composability, the former two are only useful for toy protocols. With composability, you can build real-world, multi-stage, multi-role distributed applications—from simple pingpong to complex transaction systems and consensus protocol chains.
 
-Troupe's composability design reduces distributed system complexity from **multiplicative to additive**, dramatically raising the upper limit of distributed logic that humans can master. It demonstrates that when facing the chaos of distributed systems, we need not surrender—through clever use of the type system, we can encapsulate chaos within a deterministic box and then, with compositional Lego blocks, construct any complex system we can imagine.
+Polyrole's composability design reduces distributed system complexity from **multiplicative to additive**, dramatically raising the upper limit of distributed logic that humans can master. It demonstrates that when facing the chaos of distributed systems, we need not surrender—through clever use of the type system, we can encapsulate chaos within a deterministic box and then, with compositional Lego blocks, construct any complex system we can imagine.
 

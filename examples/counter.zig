@@ -1,6 +1,6 @@
 const std = @import("std");
-const troupe = @import("troupe");
-const Data = troupe.Data;
+const polyrole = @import("polyrole");
+const Data = polyrole.Data;
 
 pub fn main() !void {
     var ctx: i32 = 0;
@@ -11,7 +11,7 @@ pub fn main() !void {
 
 pub const EnterFsmState = A;
 
-pub const Runner = troupe.Runner(EnterFsmState);
+pub const Runner = polyrole.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 
 const Role = enum { a, b, c, d };
@@ -24,14 +24,14 @@ const Context = struct {
 
 fn mk_info(
     StateName: []const u8,
-) troupe.ProtocolInfo("counter", Role, Context{}, &.{.a}, &.{}) {
+) polyrole.ProtocolInfo("counter", Role, Context{}, &.{.a}, &.{}) {
     //`internal_roles` is 1, which is equivalent to `polystate`.
     return .{ .name = StateName, .sender = .a, .receiver = &.{} };
 }
 
 const A = union(enum) {
     to_b: Data(void, B),
-    exit: Data(void, troupe.Exit),
+    exit: Data(void, polyrole.Exit),
 
     pub const info = mk_info("A");
 

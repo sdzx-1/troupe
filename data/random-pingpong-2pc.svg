@@ -56,13 +56,13 @@
 </g>
 <g id="clust10" class="cluster">
 <title>cluster_fsm_8</title>
-<polygon fill="none" stroke="black" points="1837,-153.75 1837,-256.25 2291,-256.25 2291,-153.75 1837,-153.75"/>
-<text xml:space="preserve" text-anchor="middle" x="2064" y="-238.95" font-family="Times,serif" font-size="14.00">random_pingpong_and_2pc: { .selector, .charlie, .alice, .bob }</text>
+<polygon fill="none" stroke="black" points="1390,-16 1390,-118.5 1498,-118.5 1498,-16 1390,-16"/>
+<text xml:space="preserve" text-anchor="middle" x="1444" y="-101.2" font-family="Times,serif" font-size="14.00">polyrole_exit</text>
 </g>
 <g id="clust11" class="cluster">
 <title>cluster_fsm_9</title>
-<polygon fill="none" stroke="black" points="1396,-16 1396,-118.5 1493,-118.5 1493,-16 1396,-16"/>
-<text xml:space="preserve" text-anchor="middle" x="1444.5" y="-101.2" font-family="Times,serif" font-size="14.00">troupe_exit</text>
+<polygon fill="none" stroke="black" points="1837,-153.75 1837,-256.25 2291,-256.25 2291,-153.75 1837,-153.75"/>
+<text xml:space="preserve" text-anchor="middle" x="2064" y="-238.95" font-family="Times,serif" font-size="14.00">random_pingpong_and_2pc: { .selector, .charlie, .alice, .bob }</text>
 </g>
 <!-- 14 -->
 <g id="node1" class="node">
@@ -116,21 +116,8 @@
 <polygon fill="navy" stroke="navy" points="1734.69,-469.37 1727.29,-476.95 1737.8,-475.64 1734.69,-469.37"/>
 <text xml:space="preserve" text-anchor="middle" x="1804.75" y="-357.45" font-family="Times,serif" font-size="14.00" fill="navy">failed_retry</text>
 </g>
-<!-- 0 -->
-<g id="node23" class="node">
-<title>0</title>
-<polygon fill="none" stroke="red" points="2243.38,-197.75 1908.62,-197.75 1908.62,-161.75 2243.38,-161.75 2243.38,-197.75"/>
-<text xml:space="preserve" text-anchor="middle" x="2076" y="-175.07" font-family="Times,serif" font-size="14.00">[0] Start .selector &#45;&gt; { .charlie, .alice, .bob }</text>
-</g>
-<!-- 17&#45;&gt;0 -->
-<g id="edge26" class="edge">
-<title>17&#45;&gt;0</title>
-<path fill="none" stroke="navy" d="M1817.39,-179.75C1843.12,-179.75 1870.29,-179.75 1896.97,-179.75"/>
-<polygon fill="navy" stroke="navy" points="1896.85,-183.25 1906.85,-179.75 1896.85,-176.25 1896.85,-183.25"/>
-<text xml:space="preserve" text-anchor="middle" x="1862.81" y="-186.7" font-family="Times,serif" font-size="14.00" fill="navy">succeeded</text>
-</g>
 <!-- 11 -->
-<g id="node24" class="node">
+<g id="node23" class="node">
 <title>11</title>
 <polygon fill="none" stroke="orange" points="1483.12,-60 1404.88,-60 1404.88,-24 1483.12,-24 1483.12,-60"/>
 <text xml:space="preserve" text-anchor="middle" x="1444" y="-37.33" font-family="Times,serif" font-size="14.00">[11] Exit</text>
@@ -141,6 +128,19 @@
 <path fill="none" stroke="navy" d="M1647.02,-161.28C1605.34,-137 1529.81,-92.99 1483.55,-66.04"/>
 <polygon fill="navy" stroke="navy" points="1485.58,-63.17 1475.18,-61.16 1482.05,-69.22 1485.58,-63.17"/>
 <text xml:space="preserve" text-anchor="middle" x="1634.39" y="-130.45" font-family="Times,serif" font-size="14.00" fill="navy">failed</text>
+</g>
+<!-- 0 -->
+<g id="node24" class="node">
+<title>0</title>
+<polygon fill="none" stroke="red" points="2243.38,-197.75 1908.62,-197.75 1908.62,-161.75 2243.38,-161.75 2243.38,-197.75"/>
+<text xml:space="preserve" text-anchor="middle" x="2076" y="-175.07" font-family="Times,serif" font-size="14.00">[0] Start .selector &#45;&gt; { .charlie, .alice, .bob }</text>
+</g>
+<!-- 17&#45;&gt;0 -->
+<g id="edge26" class="edge">
+<title>17&#45;&gt;0</title>
+<path fill="none" stroke="navy" d="M1817.39,-179.75C1843.12,-179.75 1870.29,-179.75 1896.97,-179.75"/>
+<polygon fill="navy" stroke="navy" points="1896.85,-183.25 1906.85,-179.75 1896.85,-176.25 1896.85,-183.25"/>
+<text xml:space="preserve" text-anchor="middle" x="1862.81" y="-186.7" font-family="Times,serif" font-size="14.00" fill="navy">succeeded</text>
 </g>
 <!-- 20 -->
 <g id="node5" class="node">
@@ -194,19 +194,19 @@
 <polygon fill="darkblue" stroke="darkblue" points="1267.38,-469.23 1260,-476.83 1270.51,-475.48 1267.38,-469.23"/>
 <text xml:space="preserve" text-anchor="middle" x="1390.9" y="-357.45" font-family="Times,serif" font-size="14.00" fill="darkblue">failed_retry</text>
 </g>
-<!-- 23&#45;&gt;0 -->
-<g id="edge35" class="edge">
-<title>23&#45;&gt;0</title>
-<path fill="none" stroke="darkblue" d="M1253.83,-198.15C1300.03,-217.39 1377.11,-246.31 1446.88,-257.56 1511.16,-267.93 1561.16,-297.36 1829,-256.25 1896.45,-245.9 1970.88,-220.87 2020.22,-202.24"/>
-<polygon fill="darkblue" stroke="darkblue" points="2021.47,-205.51 2029.56,-198.67 2018.97,-198.97 2021.47,-205.51"/>
-<text xml:space="preserve" text-anchor="middle" x="1484" y="-268.2" font-family="Times,serif" font-size="14.00" fill="darkblue">succeeded</text>
-</g>
 <!-- 23&#45;&gt;11 -->
 <g id="edge36" class="edge">
 <title>23&#45;&gt;11</title>
 <path fill="none" stroke="darkblue" d="M1241.85,-161.28C1283.27,-137.05 1358.25,-93.18 1404.33,-66.21"/>
 <polygon fill="darkblue" stroke="darkblue" points="1406.09,-69.24 1412.95,-61.17 1402.55,-63.2 1406.09,-69.24"/>
 <text xml:space="preserve" text-anchor="middle" x="1320.27" y="-130.45" font-family="Times,serif" font-size="14.00" fill="darkblue">failed</text>
+</g>
+<!-- 23&#45;&gt;0 -->
+<g id="edge35" class="edge">
+<title>23&#45;&gt;0</title>
+<path fill="none" stroke="darkblue" d="M1253.83,-198.15C1300.03,-217.39 1377.11,-246.31 1446.88,-257.56 1511.16,-267.93 1561.16,-297.36 1829,-256.25 1896.45,-245.9 1970.88,-220.87 2020.22,-202.24"/>
+<polygon fill="darkblue" stroke="darkblue" points="2021.47,-205.51 2029.56,-198.67 2018.97,-198.97 2021.47,-205.51"/>
+<text xml:space="preserve" text-anchor="middle" x="1484" y="-268.2" font-family="Times,serif" font-size="14.00" fill="darkblue">succeeded</text>
 </g>
 <!-- 7 -->
 <g id="node9" class="node">
@@ -260,19 +260,19 @@
 <polygon fill="darkblue" stroke="darkblue" points="233.72,-469.49 226.16,-476.92 236.7,-475.83 233.72,-469.49"/>
 <text xml:space="preserve" text-anchor="middle" x="331.36" y="-357.45" font-family="Times,serif" font-size="14.00" fill="darkblue">failed_retry</text>
 </g>
-<!-- 10&#45;&gt;0 -->
-<g id="edge17" class="edge">
-<title>10&#45;&gt;0</title>
-<path fill="none" stroke="darkblue" d="M304.22,-195.26C480.39,-213.93 792.13,-244.26 1060,-256.25 1229.66,-263.84 1272.29,-257.85 1442.12,-257.56 1614.07,-257.27 1659.03,-282.26 1829,-256.25 1896.45,-245.93 1970.88,-220.89 2020.23,-202.26"/>
-<polygon fill="darkblue" stroke="darkblue" points="2021.47,-205.53 2029.56,-198.69 2018.97,-198.99 2021.47,-205.53"/>
-<text xml:space="preserve" text-anchor="middle" x="1405" y="-268.2" font-family="Times,serif" font-size="14.00" fill="darkblue">succeeded</text>
-</g>
 <!-- 10&#45;&gt;11 -->
 <g id="edge18" class="edge">
 <title>10&#45;&gt;11</title>
 <path fill="none" stroke="darkblue" d="M304.34,-163.87C586.49,-133.94 1211.06,-67.7 1393.21,-48.39"/>
 <polygon fill="darkblue" stroke="darkblue" points="1393.48,-51.88 1403.06,-47.34 1392.74,-44.92 1393.48,-51.88"/>
 <text xml:space="preserve" text-anchor="middle" x="671.59" y="-130.45" font-family="Times,serif" font-size="14.00" fill="darkblue">failed</text>
+</g>
+<!-- 10&#45;&gt;0 -->
+<g id="edge17" class="edge">
+<title>10&#45;&gt;0</title>
+<path fill="none" stroke="darkblue" d="M304.22,-195.26C480.39,-213.93 792.13,-244.26 1060,-256.25 1229.66,-263.84 1272.29,-257.85 1442.12,-257.56 1614.07,-257.27 1659.03,-282.26 1829,-256.25 1896.45,-245.93 1970.88,-220.89 2020.23,-202.26"/>
+<polygon fill="darkblue" stroke="darkblue" points="2021.47,-205.53 2029.56,-198.69 2018.97,-198.99 2021.47,-205.53"/>
+<text xml:space="preserve" text-anchor="middle" x="1405" y="-268.2" font-family="Times,serif" font-size="14.00" fill="darkblue">succeeded</text>
 </g>
 <!-- 1 -->
 <g id="node13" class="node">

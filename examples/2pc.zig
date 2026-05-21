@@ -1,6 +1,6 @@
 const std = @import("std");
-const troupe = @import("troupe");
-const Data = troupe.Data;
+const polyrole = @import("polyrole");
+const Data = polyrole.Data;
 const mk2pc = @import("./protocols/two_phase_commit.zig").mk2pc;
 
 const Role = enum { alice, bob, charlie };
@@ -24,9 +24,9 @@ const Context = struct {
     charlie: type = CharlieContext,
 };
 
-pub const EnterFsmState = mk2pc(Role, .charlie, .alice, .bob, Context{}, troupe.Exit, troupe.Exit).Begin;
+pub const EnterFsmState = mk2pc(Role, .charlie, .alice, .bob, Context{}, polyrole.Exit, polyrole.Exit).Begin;
 
-pub const Runner = troupe.Runner(EnterFsmState);
+pub const Runner = polyrole.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 const channel = @import("channel.zig");
 

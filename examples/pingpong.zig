@@ -1,6 +1,6 @@
 const std = @import("std");
-const troupe = @import("troupe");
-const Data = troupe.Data;
+const polyrole = @import("polyrole");
+const Data = polyrole.Data;
 const pingpong = @import("./protocols/pingpong.zig");
 
 const Role = enum { alice, bob };
@@ -18,9 +18,9 @@ const Context = struct {
     bob: type = BobContext,
 };
 
-pub const EnterFsmState = pingpong.MkPingPong(Role, .alice, .bob, Context{}, .pingpong, .pingpong, troupe.Exit).Ping;
+pub const EnterFsmState = pingpong.MkPingPong(Role, .alice, .bob, Context{}, .pingpong, .pingpong, polyrole.Exit).Ping;
 
-pub const Runner = troupe.Runner(EnterFsmState);
+pub const Runner = polyrole.Runner(EnterFsmState);
 pub const curr_id = Runner.idFromState(EnterFsmState);
 const channel = @import("channel.zig");
 

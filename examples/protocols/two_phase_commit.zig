@@ -1,6 +1,6 @@
 const std = @import("std");
-const troupe = @import("troupe");
-const Data = troupe.Data;
+const polyrole = @import("polyrole");
+const Data = polyrole.Data;
 
 pub fn mk2pc(
     Role: type,
@@ -16,7 +16,7 @@ pub fn mk2pc(
             StateName: []const u8,
             sender: Role,
             receiver: []const Role,
-        ) troupe.ProtocolInfo(
+        ) polyrole.ProtocolInfo(
             "2pc_generic",
             Role,
             context,

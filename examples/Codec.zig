@@ -1,5 +1,5 @@
 const std = @import("std");
-const Notify = @import("troupe").Notify;
+const Notify = @import("polyrole").Notify;
 const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
 
@@ -7,7 +7,7 @@ pub fn encode(writer: *std.Io.Writer, state_id: anytype, val: anytype) !void {
     const id: u32 = @intFromEnum(state_id);
     try writer.writeInt(u32, id, native_endian);
     if (@TypeOf(val) == Notify) {
-        try writer.writeInt(u32, val.troupe_notify, native_endian);
+        try writer.writeInt(u32, val.polyrole_notify, native_endian);
     } else {
         switch (val) {
             inline else => |msg, tag| {
@@ -40,7 +40,7 @@ pub fn decode(reader: *std.Io.Reader, state_id: anytype, T: type) !T {
     }
     if (T == Notify) {
         const next_id = try reader.takeInt(u32, native_endian);
-        return .{ .troupe_notify = next_id };
+        return .{ .polyrole_notify = next_id };
     } else {
         const recv_tag_num = try reader.takeByte();
         const tag: std.meta.Tag(T) = @enumFromInt(recv_tag_num);

@@ -1,7 +1,7 @@
 .{
-    .name = .troupe,
+    .name = .polyrole,
     .version = "0.0.0",
-    .fingerprint = 0x81fbfc1453f7205d, // Changing this has security and trust implications.
+    .fingerprint = 0x49556a1ca1412ecf, // Changing this has security and trust implications.
     .minimum_zig_version = "0.16.0",
     .dependencies = .{},
     .paths = .{
