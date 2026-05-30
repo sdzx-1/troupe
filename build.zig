@@ -110,7 +110,7 @@ pub fn addGraphFile(
         \\  const writer = &stdout_writer.interface;
         \\  defer writer.flush() catch @panic("Failed to flush");
         \\
-        \\  try graph.{s}(writer);
+        \\  try graph.{s}(null, writer);
         \\}}
     , .{ module_name, "generateDot" }) catch @panic("OOM");
 

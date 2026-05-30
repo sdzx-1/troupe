@@ -1,8 +1,6 @@
 const std = @import("std");
 const polyrole = @import("root.zig");
 
-
-
 arena: std.heap.ArenaAllocator,
 name: []const u8,
 nodes: std.ArrayListUnmanaged(Node),
@@ -21,6 +19,7 @@ const colors: []const []const u8 = &.{
 pub const Node = struct {
     state_description: []const u8,
     id: u32,
+    sender: []const u8,
     fsm_description: []const u8,
 };
 
@@ -32,6 +31,7 @@ pub const Edge = struct {
 
 pub fn generateDot(
     self: @This(),
+    emoj_map: ?*std.StringHashMap([]const u8),
     writer: anytype,
 ) !void {
     try writer.writeAll(
@@ -73,11 +73,12 @@ pub fn generateDot(
 
             // Add node to current FSM subgraph
             try writer.print(
-                \\      {d}[shape=rect,  label="[{d}] {s}", color = "{s}"];
+                \\      {d}[shape=rect,  label="{s}[{d}] {s}", color = "{s}"];
                 \\
             ,
                 .{
                     node.id,
+                    if (emoj_map) |map| map.get(node.sender) orelse "" else "",
                     node.id,
                     node.state_description,
                     colors[@as(usize, @intCast(node.id)) % colors.len],
@@ -142,6 +143,7 @@ pub fn initWithFsm(allocator: std.mem.Allocator, comptime State_: type) !Graph {
                 .{ State.info.name, State.info.sender, State.info.receiver },
             ),
             .id = @intCast(state_idx),
+            .sender = if (State == polyrole.Exit) "" else try std.fmt.allocPrint(arena_allocator, "{t}", .{State.info.sender}),
             .fsm_description = if (State == polyrole.Exit) fsm_name else try std.fmt.allocPrint(
                 arena_allocator,
                 "{s}: {any}",
